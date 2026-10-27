@@ -273,7 +273,12 @@ func newNativeEngine(directory string) (*nativeEngine, error) {
 	d := &Downloader{cfg: cfg, providerHosts: map[string]string{}, proxyRouter: router,
 		limiter: newRequestLimiter(3, 250*time.Millisecond), diagnostics: newDiagnosticLog(directory)}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	// RootCAs 设为「系统信任库 + 打包 CA 全集」。通过 dart:ffi / JNI 嵌入时 Go 的
+	// crypto/tls 不会加载系统信任库，x509.SystemCertPool() 在 Android 端返回空池，
+	// 站源换成 Certum 等小众公共根后 m3u8 分片与海报就会报
+	// "tls: failed to verify certificate: x509: certificate signed by unknown
+	// authority"。打包 CA 在此提供信任锚；其余平台只是多追加一份，行为不变。
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: systemCertPoolWithBundle()}
 	transport.MaxIdleConnsPerHost = 8
 	transport.ResponseHeaderTimeout = 20 * time.Second
 	transport.Proxy = router.proxy

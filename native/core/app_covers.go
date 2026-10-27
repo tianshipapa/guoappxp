@@ -82,7 +82,28 @@ func newNativeCoverCache(directory string, downloader *Downloader) *nativeCoverC
 	return cache
 }
 
+// nativeDoubanCoverReferer 给豆瓣图床的封面补 Referer。
+//
+// 爱看机器人（ikanbot）与部分聚合源的海报直接用豆瓣 CDN 的地址
+// （img1/img3/img9.doubanio.com/view/photo/m_ratio_poster/...）。豆瓣图床按 Referer
+// 防盗链：不带 Referer 或 Referer 不是豆瓣页面时会返回 HTTP 403，或者 302 到一张
+// 统一的默认图（下载下来内容不对，被判为「站源未返回有效海报」）。
+// 封面请求会先过这里，命中豆瓣域名时统一使用豆瓣电影站的 Referer。
+func nativeDoubanCoverReferer(parsed *url.URL) (string, bool) {
+	host := strings.ToLower(parsed.Hostname())
+	if strings.HasSuffix(host, ".doubanio.com") || host == "doubanio.com" ||
+		strings.HasSuffix(host, ".douban.com") || host == "douban.com" {
+		return "https://movie.douban.com/", true
+	}
+	return "", false
+}
+
 func nativeCoverReferer(downloader *Downloader, source, address string) string {
+	if parsed, err := url.Parse(address); err == nil {
+		if referer, ok := nativeDoubanCoverReferer(parsed); ok {
+			return referer
+		}
+	}
 	if source == sourceCloudFront {
 		if parsed, err := url.Parse(address); err == nil && (strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".zdmhyg.cn") || strings.EqualFold(parsed.Hostname(), "pic.tuafjz.cn")) {
 			return downloader.providerBaseURL(sourceHuangguoAI) + "/"
@@ -199,6 +220,36 @@ func (cache *nativeCoverCache) fetch(key string, drama nativeDrama, referer, fal
 }
 
 func (cache *nativeCoverCache) download(ctx context.Context, address, referer string) ([]byte, error) {
+	data, err := cache.downloadOnce(ctx, address, referer, nil)
+	if err != nil {
+		return nil, err
+	}
+	decoded := nativeDecodeCover(data)
+	if nativeIsCoverImage(decoded) {
+		return decoded, nil
+	}
+	// 豆瓣这类图床除了按 Referer 防盗链，还会按 TLS 指纹做风控：标准 Go 传输（即使
+	// Referer 正确）拿到的不是图片而是一段反爬脚本。这时换浏览器指纹传输再取一次，
+	// Chrome 指纹通常就能拿到真实 JPEG；仍然拿不到才报「无效海报」。
+	// 只对 https 重试：本地 / http 图床不涉及这种 CDN 风控，没必要多发一次请求。
+	if browser := cache.downloader.browserTransport; browser != nil &&
+		strings.HasPrefix(strings.ToLower(address), "https://") {
+		if retried, retryErr := cache.downloadOnce(ctx, address, referer, browser.browserRoundTrip); retryErr == nil {
+			if decoded = nativeDecodeCover(retried); nativeIsCoverImage(decoded) {
+				return decoded, nil
+			}
+		}
+	}
+	return nil, errors.New("站源未返回有效海报")
+}
+
+// fetchCover 用给定的传输发一次海报请求；roundTrip 为 nil 时走核心默认客户端。
+func (cache *nativeCoverCache) downloadOnce(
+	ctx context.Context,
+	address string,
+	referer string,
+	roundTrip func(*http.Request) (*http.Response, error),
+) ([]byte, error) {
 	request, err := http.NewRequestWithContext(context.WithValue(ctx, nativeCoverNetworkKey{}, true), http.MethodGet, address, nil)
 	if err != nil {
 		return nil, err
@@ -208,15 +259,20 @@ func (cache *nativeCoverCache) download(ctx context.Context, address, referer st
 	request.Header.Set("Accept", "image/webp,image/jpeg,image/png,image/gif,*/*;q=0.5")
 	request.Header.Set("Sec-Fetch-Mode", "no-cors")
 	request.Header.Set("Sec-Fetch-Dest", "image")
-	client := *cache.downloader.client
-	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if len(via) >= 5 || !validNativeCoverURL(request.URL) {
-			return errors.New("海报重定向地址无效")
+	var response *http.Response
+	if roundTrip != nil {
+		response, err = roundTrip(request)
+	} else {
+		client := *cache.downloader.client
+		client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || !validNativeCoverURL(request.URL) {
+				return errors.New("海报重定向地址无效")
+			}
+			request.Header.Set("Referer", referer)
+			return nil
 		}
-		request.Header.Set("Referer", referer)
-		return nil
+		response, err = client.Do(request)
 	}
-	response, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -233,10 +289,6 @@ func (cache *nativeCoverCache) download(ctx context.Context, address, referer st
 	}
 	if len(data) > nativeCoverMaxBytes {
 		return nil, errors.New("海报文件过大")
-	}
-	data = nativeDecodeCover(data)
-	if !nativeIsCoverImage(data) {
-		return nil, errors.New("站源未返回有效海报")
 	}
 	return data, nil
 }
