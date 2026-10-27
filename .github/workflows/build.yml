@@ -7,6 +7,10 @@ on:
         description: '构建 iOS 包（macOS runner 按 10 倍分钟计费，额度不够时取消勾选）'
         type: boolean
         default: true
+      republish:
+        description: '重复发布：同一版本已有 Release / tag 时覆盖重发（取消勾选则报错停止）'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -58,11 +62,14 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      exists_tag: ${{ steps.version.outputs.exists_tag }}
+      exists_release: ${{ steps.version.outputs.exists_release }}
     steps:
       - uses: actions/checkout@v4
       - id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_REPUBLISH: ${{ inputs.republish }}
         run: |
           set -euo pipefail
           # 仓库默认分支是 master；早期文档写的是 main，两个都放行，避免手动运行时
@@ -77,12 +84,26 @@ jobs:
             exit 1
           fi
           tag="app-v${version//+/-}"
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || gh release view "$tag" >/dev/null 2>&1; then
-            echo "版本 $version（$tag）已发布过，请先提升 pubspec.yaml 的 version。" >&2
-            exit 1
+          exists_tag=0
+          exists_release=0
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            exists_tag=1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            exists_release=1
+          fi
+          if [ "$exists_tag" = "1" ] || [ "$exists_release" = "1" ]; then
+            if [ "$INPUT_REPUBLISH" != "true" ]; then
+              echo "版本 $version（$tag）已发布过。勾选 republish 可覆盖重发，" >&2
+              echo "或提升 pubspec.yaml 的 version 后再发布。" >&2
+              exit 1
+            fi
+            echo "::warning::版本 $version（$tag）已存在（tag=$exists_tag release=$exists_release），勾选了重复发布，本次将覆盖旧 Release 与 tag 并把新包指到当前提交。"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "exists_tag=$exists_tag" >> "$GITHUB_OUTPUT"
+          echo "exists_release=$exists_release" >> "$GITHUB_OUTPUT"
 
   android:
     needs: prepare
@@ -325,6 +346,8 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          EXISTS_TAG: ${{ needs.prepare.outputs.exists_tag }}
+          EXISTS_RELEASE: ${{ needs.prepare.outputs.exists_release }}
           ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
         run: |
           set -euo pipefail
@@ -372,19 +395,46 @@ jobs:
             echo "::warning::本次发布未包含 iOS 包（未勾选 with_ios 或 iOS job 未成功）。"
             printf '\n注意：本次发布未包含 iOS 包，原因见 Actions 运行详情里的 ios job。\n' >> notes.md
           fi
+          if [ "$EXISTS_RELEASE" = "1" ] || [ "$EXISTS_TAG" = "1" ]; then
+            printf '\n本次为重复发布：已用同名包覆盖此前的 %s 旧资产。\n' "$TAG" >> notes.md
+          fi
+          # 重复发布：先把同名 Release 和 tag 清掉，再按当前提交重建，否则 gh release
+          # create 会因为 tag 已存在而失败。顺序很重要——先删 Release（它靠 tag 定位），
+          # 再删 tag ref；任何一步失败都退到下面的「更新现有 Release」兜底。
+          if [ "$EXISTS_RELEASE" = "1" ]; then
+            echo "删除已存在的 Release $TAG …"
+            gh release delete "$TAG" --yes --cleanup-artifacts || true
+          fi
+          if [ "$EXISTS_TAG" = "1" ]; then
+            echo "删除已存在的远端 tag $TAG …"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
+          fi
           # 这里常见的失败是 HTTP 403 Resource not accessible by integration：
           # 仓库/组织设置把 GITHUB_TOKEN 的默认权限压成了只读（job 里写的
           # contents: write 未必能覆盖仓库级默认值）。给一句人能看懂的处理办法，
           # 免得每次都来对 POST /releases 干瞪眼。
-          if ! gh release create "$TAG" release/* --target "$GITHUB_SHA" \
-                --title "红果鉴 / 真果鉴 ${VERSION}" --notes-file notes.md; then
-            echo "::error::创建 Release 失败。若提示 Resource not accessible by integration，"
+          publishing_failed() {
+            echo "::error::发布 Release 失败。若提示 Resource not accessible by integration，"
             echo "::error::请把 Settings → Actions → General → Workflow permissions 改成"
             echo "::error::「Read and write permissions」，或在仓库 Secrets 配 RELEASE_TOKEN"
             echo "::error::（带 repo 权限的个人访问令牌）；改完后必须重新触发一次新的运行，"
             echo "::error::点 Re-run 重跑不生效——重跑会沿用原运行当时的令牌权限。"
             exit 1
+          }
+          if gh release create "$TAG" release/* --target "$GITHUB_SHA" \
+                --title "红果鉴 / 真果鉴 ${VERSION}" --notes-file notes.md; then
+            exit 0
           fi
+          # tag 没删干净（比如令牌没有删 ref 的权限）时落到这条兜底：
+          # 沿用已有 Release，覆盖同名资产并更新说明。
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::warning::无法重建 Release，改为更新现有 Release 的资产与说明。"
+            gh release upload "$TAG" release/* --clobber || publishing_failed
+            gh release edit "$TAG" --title "红果鉴 / 真果鉴 ${VERSION}" \
+              --notes-file notes.md || publishing_failed
+            exit 0
+          fi
+          publishing_failed
       - name: 推送到 Telegram 频道
         continue-on-error: true
         env:
