@@ -39,6 +39,7 @@ type nativeStreamSession struct {
 	cancel       context.CancelFunc
 	lastUsed     time.Time
 	diagnosticID string
+	adBlock      bool
 }
 
 type nativeStreamServer struct {
@@ -83,14 +84,14 @@ func newNativeStreamServer(d *Downloader) (*nativeStreamServer, error) {
 	return stream, nil
 }
 
-func (stream *nativeStreamServer) nativeOpen(media providerMedia) (string, string) {
+func (stream *nativeStreamServer) nativeOpen(media providerMedia, adBlock bool) (string, string) {
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		panic(err)
 	}
 	token := hex.EncodeToString(tokenBytes)
 	ctx, cancel := context.WithCancel(providerMediaContext(context.Background(), media.credentials))
-	session := &nativeStreamSession{assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token)}
+	session := &nativeStreamSession{assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token), adBlock: adBlock}
 	stream.mu.Lock()
 	for id, old := range stream.sessions {
 		if time.Since(old.lastUsed) > 10*time.Minute {
@@ -290,7 +291,7 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	}
 	if len(asset.data) > 0 {
 		if strings.Contains(asset.contentType, "mpegurl") {
-			body, err := stream.nativeRewrite(parts[0], session, string(asset.data), asset.address)
+			body, err := stream.nativeRewrite(parts[0], session, nativeAdCleaned(session, string(asset.data), asset.address), asset.address)
 			if err != nil {
 				stream.nativeLog(info, "playlist_rewrite", asset.address, "kind="+nativePlaylistKind(string(asset.data))+" error="+nativeStreamError(err), 0, "")
 				http.Error(writer, err.Error(), http.StatusBadGateway)
@@ -363,7 +364,7 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 			http.Error(writer, "播放列表过大或读取失败", http.StatusBadGateway)
 			return
 		}
-		text := strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff"))
+		text := nativeAdCleaned(session, strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff")), finalURL.String())
 		if !strings.HasPrefix(text, "#EXTM3U") {
 			stream.nativeLog(info, "playlist_invalid", finalURL.String(), "", 0, contentType)
 			http.Error(writer, "播放列表无效", http.StatusBadGateway)

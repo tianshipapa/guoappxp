@@ -50,10 +50,13 @@ type Downloader struct {
 	client                *http.Client
 	huangdouDetails       map[string]huangdouDetailEntry
 	huangdouDetailPending map[string]*huangdouDetailCall
+	ikanbotLineCache      map[string]ikanbotLineEntry
+	ikanbotLinePending    map[string]*ikanbotLineCall
 	providerMu            sync.Mutex
 	providerHosts         map[string]string
 	limiter               *requestLimiter
 	proxyRouter           *proxyRouter
+	browserTransport      *huangguoBrowserTransport
 	hongguoOnce           sync.Once
 	hongguo               *hongguoAppClient
 	huangjuOnce           sync.Once
@@ -107,6 +110,11 @@ type nativeInput struct {
 	Action          string                  `json:"action"`
 	Directory       string                  `json:"directory"`
 	Source          string                  `json:"source"`
+	Name            string                  `json:"name"`
+	Base            string                  `json:"base"`
+	Rule            string                  `json:"rule"`
+	Kind            string                  `json:"kind"`
+	Content         string                  `json:"content"`
 	Page            int                     `json:"page"`
 	Query           string                  `json:"query"`
 	Category        string                  `json:"category"`
@@ -114,9 +122,11 @@ type nativeInput struct {
 	Chapter         Chapter                 `json:"chapter"`
 	Index           int                     `json:"index"`
 	Quality         int                     `json:"quality"`
+	Route           int                     `json:"route"`
 	Session         string                  `json:"session"`
 	Sequence        int64                   `json:"sequence"`
 	Force           bool                    `json:"force"`
+	AdBlock         *bool                   `json:"adBlock"`
 }
 
 type nativeCatalogResult struct {
@@ -170,6 +180,7 @@ type nativeEngine struct {
 	playbackCancel   context.CancelFunc
 	sourceCatalogMu  sync.Mutex
 	sourceCatalogs   map[string]chan struct{}
+	customRegistry   *customMaccmsRegistry
 }
 
 var nativeState struct {
@@ -446,6 +457,43 @@ func nativeDispatch(input nativeInput) (any, error) {
 	case "release":
 		engine.nativeReleasePlayback(input.Session)
 		return true, nil
+	case "customSources":
+		return map[string]any{"items": engine.customMaccmsSources()}, nil
+	case "addCustomSource":
+		record, err := engine.addCustomMaccmsSource(input.Name, input.Base, input.Rule, input.Kind)
+		if err != nil {
+			return nil, err
+		}
+		return record, nil
+	case "updateCustomSource":
+		record, err := engine.updateCustomMaccmsSource(input.Source, input.Name, input.Base, input.Rule, input.Kind)
+		if err != nil {
+			return nil, err
+		}
+		return record, nil
+	case "removeCustomSource":
+		return true, engine.removeCustomMaccmsSource(input.Source)
+	case "exportCustomSources":
+		content, err := engine.exportCustomMaccmsSources()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"content": content, "filename": customSourceExportFilename()}, nil
+	case "importCustomSources":
+		if strings.TrimSpace(input.Content) == "" {
+			return nil, errors.New("导入内容为空")
+		}
+		result, err := engine.importCustomMaccmsSources(input.Content)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	case "resetCustomSources":
+		removed, err := engine.resetCustomMaccmsSources()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"removed": removed}, nil
 	default:
 		return nil, errors.New("不支持的应用操作")
 	}
@@ -657,6 +705,15 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		result.HasMore = len(items) >= 20
 	case sourceCloudFront:
 		items, result.HasMore, err = d.fetchLegacyCatalogCategoryPage(ctx, page, category)
+	case sourceIkanbot:
+		items, result.HasMore, err = d.fetchIkanbotCatalogPage(ctx, page, category, "")
+	case sourceA123:
+		items, result.HasMore, err = d.fetchA123CatalogPage(ctx, page, category, "")
+	default:
+		// 短剧家族与自定义 MacCMS 源共用同一套目录抓取（isDuanjuProviderSource 已含自定义源）。
+		if isDuanjuProviderSource(source) {
+			items, result.HasMore, err = d.fetchDuanjuCatalogPage(ctx, source, page, category)
+		}
 	}
 	if err != nil && len(items) == 0 {
 		return result, err
@@ -760,6 +817,9 @@ func (engine *nativeEngine) nativeResolve(ctx context.Context, input nativeInput
 		return nativePlan{}, err
 	}
 	choice := nativePlaybackChoices(media, input.Quality)
+	if input.AdBlock != nil {
+		choice.adBlock = *input.AdBlock
+	}
 	if series, video, valid := hongguoPlaybackIDs(task); valid {
 		choice.danmakuSeries, choice.danmakuVideo = series, video
 	}

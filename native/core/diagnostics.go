@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,4 +114,26 @@ func (downloader *Downloader) recordDiagnostic(event diagnosticEvent) {
 			fmt.Fprintf(os.Stderr, "诊断日志保存失败：%v\n", publicError(err))
 		})
 	}
+}
+
+// recordGoroutinePanic 把一次 goroutine 里的 panic 堆栈落盘到 app.log（事件
+// goroutine_panic，level=error）。调用方应在 defer recover 后调用；recover
+// 到值后进程不再致命，仅该 goroutine 静默退出。
+//
+// 该 helper 本身对写盘失败做 recover，避免在 recover 路径上二次 panic。
+func (downloader *Downloader) recordGoroutinePanic(label string, r any) {
+	defer func() { recover() }()
+	if downloader == nil {
+		return
+	}
+	stack := debug.Stack()
+	truncated := string(stack)
+	if len(truncated) > 4096 {
+		truncated = truncated[:4096]
+	}
+	downloader.recordDiagnostic(diagnosticEvent{
+		Level:   "error",
+		Event:   "goroutine_panic",
+		Message: fmt.Sprintf("site=%s value=%v\n%s", label, fmt.Sprintf("%v", r), truncated),
+	})
 }
