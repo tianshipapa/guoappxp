@@ -45,6 +45,7 @@ Flutter 多端独立短剧 / 影视应用
 | Android 7.0+ | 三架构（arm64-v8a / armeabi-v7a / x86_64）APK；同一签名可覆盖升级，旧证书版本需卸载重装 |
 | Windows 10/11 x64 | 完整 ZIP 解压后运行 `hongguojian.exe` / `zhenguojian.exe`，保留所有 DLL 与 `data` |
 | iOS 15.1+ | 已加入工程、Go 核心链接、媒体依赖、文件管理与构建脚本；iOS 播放页禁用 media_kit_video 硬件纹理加速以规避 libmpv 渲染崩溃；`CFBundleDisplayName` 使用英文 `HongGuoJian` / `ZhenGuoJian` 以通过 iloader 等侧载工具注册 App ID 时的名称校验，中文名写入 `zh-Hans.lproj/InfoPlist.strings`（开发快照，未经 Xcode 构建验证）；待 Xcode 构建与真机验收，无已签名 IPA |
+| 本地服务版（Windows / macOS / Linux） | `native/server` 提供 Go HTTP 服务并内嵌网页前端（HLS / FLV / artplayer），由 `scripts/build_web.py` 交叉编译出四份二进制。解压后双击 `start.bat`（Windows）或执行 `sh start.sh`（macOS / Linux），浏览器打开 `http://127.0.0.1:8000/web/`，同一局域网的其它设备可用启动时打印的地址访问。Windows 包内置 `ffmpeg.exe`（加密 H.265 站源需要服务端转码），macOS / Linux 需本机装 ffmpeg |
 
 `INSTALL_FAILED_NO_MATCHING_ABIS` 表示 APK 与设备架构不匹配，请更换对应架构安装包。
 
@@ -52,15 +53,16 @@ Flutter 多端独立短剧 / 影视应用
 
 工作流只能手动触发，推送和 PR 不再自动运行检查。
 
-发布流程：提升 `pubspec.yaml` 的 `version`，在 `CHANGELOG.md` 写好同名版本一节（标题如 `## 0.2.72+79`，会写入 Release 说明），推送到 `main`，再在 Actions 中手动运行 **Build app packages**（只能选 `main`）。工作流先检查版本：tag `app-v{version}`（`+` 替换为 `-`）或同名 Release 已存在时，直接失败，不进入构建。然后同时构建三个平台的两版（默认与 `--all-sources`）：
+发布流程：提升 `pubspec.yaml` 的 `version`，在 `CHANGELOG.md` 写好同名版本一节（标题如 `## 0.2.72+79`，会写入 Release 说明），推送到 `main`，再在 Actions 中手动运行 **Build app packages**（只能选 `main`）。工作流先检查版本：tag `app-v{version}`（`+` 替换为 `-`）或同名 Release 已存在时，直接失败，不进入构建。然后同时构建三个平台的两版（默认与 `--all-sources`），再加上本地服务版：
 
 | 产物 | 内容 |
 | --- | --- |
 | `*-android` | 三种架构 APK，必须使用发布证书签名并通过指纹校验 |
 | `*-windows` | Windows x64 ZIP |
 | `*-ios-unsigned` | arm64 iPhone 未签名 IPA，下载后自行签名安装 |
+| `web` | `zhenguoweb.zip`：本地服务版合集，内含 `hongguojian.zip` / `zhenguojian.zip` 与 `SHA256SUMS.txt`，两个 zip 都带 Windows 版 `ffmpeg.exe` |
 
-checks（格式、分析、测试不阻塞）、Android、Windows、iOS 全部成功后才创建 tag 和 Release；任一平台失败就不发布。已有 Release 不会被覆盖。手动发布流程为开发快照，尚未完成首次运行验证。
+checks（格式、分析、测试不阻塞）、Android、Windows、iOS、web 全部成功后才创建 tag 和 Release；任一平台失败就不发布。已有 Release 不会被覆盖。手动发布流程为开发快照，尚未完成首次运行验证。
 
 Android 签名只使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`；同时需要配置仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限）。缺少任意一项都会发布失败。CI 通过环境变量把签名传给 Gradle；本机构建使用 `android/key.properties`。`key.properties` 和证书文件不入库。
 
@@ -87,7 +89,13 @@ python3 scripts/build_ios.py --core-only [--simulator]
 python3 scripts/build_ios.py --export-options /path/to/ExportOptions.plist
 ~~~
 
-产物在 `dist/android`、`dist/windows`、`dist/ios`，红果版以 `hongguojian-` 开头，全站源版以 `zhenguojian-` 开头。
+~~~sh
+python3 scripts/build_web.py                     # 两版都构建
+python3 scripts/build_web.py --edition hongguojian
+python3 scripts/build_web.py --edition zhenguojian
+~~~
+
+产物在 `dist/android`、`dist/windows`、`dist/ios`、`dist/web`，红果版以 `hongguojian-` 开头，全站源版以 `zhenguojian-` 开头；本地服务版输出 `dist/web/hongguojian.zip`、`dist/web/zhenguojian.zip` 与合集 `dist/web/zhenguoweb.zip`。
 
 首次 Android 调试先编译对应架构核心，再运行：
 
@@ -119,6 +127,7 @@ go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
 | --- | --- |
 | `lib` | 页面、播放器、本地用户、FFI、下载和媒体处理 |
 | `native/core`、`native/bridge` | 独立站源核心、缓存、下载、目录迁移及 C ABI |
+| `native/server` | 本地服务版（Go HTTP 服务 + 内嵌网页前端，含直播代发），由 `scripts/build_web.py` 构建 |
 | `android`、`windows`、`ios` | 平台工程与必要资源 |
 | `assets/video_enhancement`、`packages/media_kit_libs_windows_video` | 增强 Shader 与许可、固定 Windows 媒体依赖插件 |
 | `scripts`、`.github/workflows` | 构建与发布 |

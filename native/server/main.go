@@ -626,6 +626,12 @@ func handleSources(writer http.ResponseWriter, request *http.Request) {
 }
 
 func sourceAvailable(source string) bool {
+	// 自定义源的核心可用性判断走的是另一条路径（catalog 里对 custom: 前缀单独放行），
+	// 用 sourceStatus 问 core 会一律得到「不可用」。能出现在 customSources 列表里的
+	// 自定义源本身就已经注册成功，这里直接放行。
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(source)), "custom:") {
+		return true
+	}
 	encoded, err := json.Marshal(map[string]any{"action": "sourceStatus", "source": source})
 	if err != nil {
 		return false

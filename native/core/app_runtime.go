@@ -459,6 +459,11 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return true, nil
 	case "customSources":
 		return map[string]any{"items": engine.customMaccmsSources()}, nil
+	// sourceStatus：本地服务版（native/server）用它判断某个站源在当前构建里是否存在。
+	// 授权阶段已用 nativeSourceAvailable 拦掉未编译进来的源，能走到这里即代表可用；
+	// 这里不返回 Flutter 端那套任务进度字段（xp 的 core 没有站源任务状态机）。
+	case "sourceStatus":
+		return map[string]any{"source": canonicalProviderSource(input.Source), "available": true}, nil
 	case "addCustomSource":
 		record, err := engine.addCustomMaccmsSource(input.Name, input.Base, input.Rule, input.Kind)
 		if err != nil {

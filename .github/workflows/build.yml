@@ -220,8 +220,28 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - *setup-go
+      - *setup-python
+      # 交叉编译 4 个平台的本地服务二进制（CGO_ENABLED=0，无需各平台 SDK），
+      # 随包带上 Windows 静态 ffmpeg.exe。产物：dist/web/zhenguoweb.zip
+      - name: Build local service edition (红果鉴 / 真果鉴)
+        run: python scripts/build_web.py
+      # 两个单独版本 zip 只随 zhenguoweb.zip 合集发布，不在 release 里单独出资产。
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/web/zhenguoweb.zip
+          if-no-files-found: error
+          retention-days: 14
+
   release:
-    needs: [checks, prepare, android, windows, ios]
+    needs: [checks, prepare, android, windows, ios, web]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -256,6 +276,10 @@ jobs:
 
           Windows：
           - *-windows-x64.zip：解压后运行 hongguojian.exe 或 zhenguojian.exe
+
+          本地服务版（web/zhenguoweb.zip）：
+          - zhenguoweb.zip：红果鉴 / 真果鉴 两个版本的合集（解压后得到 hongguojian.zip / zhenguojian.zip，含 SHA256SUMS.txt）
+          - 两个版本 zip 内均已内置 Windows 版 ffmpeg.exe，解压后双击 start.bat（Windows）或执行 sh start.sh（macOS/Linux），浏览器打开 http://127.0.0.1:8000/web/
 
           签名证书 SHA-256：${ANDROID_CERT_SHA256}
           EOF
