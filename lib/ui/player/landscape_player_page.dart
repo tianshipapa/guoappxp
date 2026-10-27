@@ -17,7 +17,6 @@ import '../app_scope.dart';
 import '../downloads/download_actions.dart';
 import '../theme/app_theme.dart';
 import 'danmaku_overlay.dart';
-import '../widgets/status_view.dart';
 import '../widgets/follow_button.dart';
 import 'episode_grid.dart';
 import 'playback_handle.dart';
@@ -1107,9 +1106,10 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                         }
                       },
                     )
-                  : const StatusView(
-                      title: '「播放设置」正在重建',
-                      icon: Icons.settings_rounded,
+                  : PlaybackSettings(
+                      session: session,
+                      onFailure: _saveFailed,
+                      showHeader: false,
                     ),
             ),
           ],

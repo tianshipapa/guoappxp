@@ -175,15 +175,22 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   Widget _controls(LiveChannel? channel) {
     final favourite = channel != null && widget.store.isFavourite(channel.key);
     final multi = _playback.routeCount > 1;
+    // 底部那一排（上一台 / 暂停 / 下一台）原来固定贴着 bottom:16，在手机横屏里正好
+    // 压在 iOS Home 指示条、Android 手势条（甚至三键导航栏）上，既难点也容易误触。
+    // 这里把视图安全区加进去：横向还要避开刘海/挖孔所在的左右安全区。
+    final insets = MediaQuery.viewPaddingOf(context);
+    final bottom = 16 + insets.bottom;
+    final left = 16 + insets.left;
+    final right = 16 + insets.right;
     return Stack(
       fit: StackFit.expand,
       children: [
         const _Shade(top: true),
         const _Shade(top: false),
         Positioned(
-          left: 16,
-          right: 16,
-          top: 12,
+          left: left,
+          right: right,
+          top: 12 + insets.top,
           child: Row(
             spacing: 8,
             children: [
@@ -217,9 +224,9 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
           ),
         ),
         Positioned(
-          left: 16,
-          right: 16,
-          bottom: 16,
+          left: left,
+          right: right,
+          bottom: bottom,
           child: Row(
             spacing: 10,
             children: [

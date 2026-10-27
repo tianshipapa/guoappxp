@@ -145,7 +145,12 @@ class _ChoicePanel<T> extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final television = form == FormFactor.television;
     final spacing = television ? 12.0 : 8.0;
+    // 「管理站源」这类次级操作原来排在列表最下面，手机上正好落在屏幕底部的手势条
+    // / 虚拟按键区里，容易点不到或误触。除了电视端（遥控器直达、且不存在底部手势区）
+    // 之外，统一放到标题行右侧，与标题同一水平线。
+    final headerAction = television ? null : action;
     final header = Row(
+      spacing: television ? 12 : 0,
       children: [
         Expanded(
           child: Column(
@@ -153,6 +158,8 @@ class _ChoicePanel<T> extends StatelessWidget {
             children: [
               Text(
                 title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: (television ? text.headlineSmall : text.titleLarge)
                     ?.copyWith(
                       fontWeight: FontWeight.w700,
@@ -169,6 +176,23 @@ class _ChoicePanel<T> extends StatelessWidget {
             ],
           ),
         ),
+        if (headerAction case final action?)
+          FocusRing(
+            radius: 999,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                action.onPressed();
+              },
+              icon: Icon(action.icon, size: 18),
+              label: Text(action.label),
+            ),
+          ),
         if (form == FormFactor.phone)
           IconButton(
             tooltip: '关闭',
@@ -217,7 +241,7 @@ class _ChoicePanel<T> extends StatelessWidget {
               ),
             ),
           ),
-          if (action case final action?)
+          if (action case final action? when headerAction == null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: FocusRing(

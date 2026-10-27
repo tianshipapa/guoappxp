@@ -59,9 +59,17 @@ class PlaybackSettings extends StatelessWidget {
     super.key,
     required this.session,
     required this.onFailure,
+    this.showHeader = true,
+    this.onClose,
   });
   final PlaybackSession session;
   final VoidCallback onFailure;
+
+  /// 横屏播放器自己带了面板标题栏，这里只要设置项本体。
+  final bool showHeader;
+
+  /// 面板里的关闭按钮回调（横屏要点的是关闭侧边面板，不是 Navigator.pop）。
+  final VoidCallback? onClose;
 
   Future<void> _change(Future<void> Function() change) async {
     try {
@@ -77,6 +85,76 @@ class PlaybackSettings extends StatelessWidget {
     builder: (context, _) {
       final colors = Theme.of(context).colorScheme;
       final label = TextStyle(fontSize: 14, color: colors.onSurfaceVariant);
+      final list = ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          Text('倍速', style: label),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final speed in playbackSpeeds)
+                _Choice(
+                  label: '${speed}x',
+                  selected: speed == session.speed,
+                  onSelected: () => _change(() => session.setSpeed(speed)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text('清晰度', style: label),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: session.local
+                ? [
+                    _Choice(
+                      label: session.qualityLabel,
+                      selected: true,
+                      onSelected: null,
+                    ),
+                  ]
+                : [
+                    for (final quality in [...session.qualities, 0])
+                      _Choice(
+                        label: quality == 0
+                            ? (session.quality == 0
+                                  ? session.qualityLabel
+                                  : '自动')
+                            : '${quality}P',
+                        selected: quality == session.quality,
+                        onSelected: session.ready
+                            ? () => _change(() => session.setQuality(quality))
+                            : null,
+                      ),
+                  ],
+          ),
+          if (!session.local) ...[
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('去广告'),
+              subtitle: Text(session.adBlock ? '解析时尝试跳过源站片头广告' : '直接播放源站原始视频流'),
+              value: session.adBlock,
+              onChanged: session.ready
+                  ? (value) => _change(() => session.setAdBlock(value))
+                  : null,
+            ),
+          ],
+          if (session.danmakuSupported) ...[
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('弹幕'),
+              value: session.danmakuEnabled,
+              onChanged: (_) => _change(session.toggleDanmaku),
+            ),
+          ],
+        ],
+      );
+      if (!showHeader) return list;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -84,88 +162,13 @@ class PlaybackSettings extends StatelessWidget {
             children: [
               const Expanded(child: Text('播放设置', style: sheetTitle)),
               IconButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: onClose ?? () => Navigator.pop(context),
                 icon: const Icon(Icons.close_rounded),
                 tooltip: '关闭',
               ),
             ],
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              children: [
-                Text('倍速', style: label),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final speed in playbackSpeeds)
-                      _Choice(
-                        label: '${speed}x',
-                        selected: speed == session.speed,
-                        onSelected: () =>
-                            _change(() => session.setSpeed(speed)),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Text('清晰度', style: label),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: session.local
-                      ? [
-                          _Choice(
-                            label: session.qualityLabel,
-                            selected: true,
-                            onSelected: null,
-                          ),
-                        ]
-                      : [
-                          for (final quality in [...session.qualities, 0])
-                            _Choice(
-                              label: quality == 0
-                                  ? (session.quality == 0
-                                        ? session.qualityLabel
-                                        : '自动')
-                                  : '${quality}P',
-                              selected: quality == session.quality,
-                              onSelected: session.ready
-                                  ? () => _change(
-                                      () => session.setQuality(quality),
-                                    )
-                                  : null,
-                            ),
-                        ],
-                ),
-                if (!session.local) ...[
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('去广告'),
-                    subtitle: Text(
-                      session.adBlock ? '解析时尝试跳过源站片头广告' : '直接播放源站原始视频流',
-                    ),
-                    value: session.adBlock,
-                    onChanged: session.ready
-                        ? (value) => _change(() => session.setAdBlock(value))
-                        : null,
-                  ),
-                ],
-                if (session.danmakuSupported) ...[
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('弹幕'),
-                    value: session.danmakuEnabled,
-                    onChanged: (_) => _change(session.toggleDanmaku),
-                  ),
-                ],
-              ],
-            ),
-          ),
+          Expanded(child: list),
         ],
       );
     },
