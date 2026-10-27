@@ -381,7 +381,7 @@ class SettingsSection extends StatelessWidget {
       children: [
         SettingsTile(
           title: '播放调试日记',
-          subtitle: '查看并复制应用运行与播放器的详细事件日志',
+          subtitle: '查看并复制应用运行、播放器事件与原生核心崩溃日志',
           onTap: () => open('播放调试日记', (_) => const DiaryView()),
         ),
       ],

@@ -57,14 +57,29 @@ Flutter 多端独立短剧 / 影视应用
 
 | 产物 | 内容 |
 | --- | --- |
-| `*-android` | 三种架构 APK，必须使用发布证书签名并通过指纹校验 |
+| `*-android` | 三种架构 APK；配好发布证书时用它签名并通过指纹校验，未配置时退回 debug 签名（仅测试用，不能覆盖已安装的正式签名版本） |
 | `*-windows` | Windows x64 ZIP |
 | `*-ios-unsigned` | arm64 iPhone 未签名 IPA，下载后自行签名安装 |
 | `web` | `zhenguoweb.zip`：本地服务版合集，内含 `hongguojian.zip` / `zhenguojian.zip` 与 `SHA256SUMS.txt`，两个 zip 都带 Windows 版 `ffmpeg.exe` |
 
 checks（格式、分析、测试不阻塞）、Android、Windows、iOS、web 全部成功后才创建 tag 和 Release；任一平台失败就不发布。已有 Release 不会被覆盖。手动发布流程为开发快照，尚未完成首次运行验证。
 
-Android 签名只使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`；同时需要配置仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限）。缺少任意一项都会发布失败。CI 通过环境变量把签名传给 Gradle；本机构建使用 `android/key.properties`。`key.properties` 和证书文件不入库。
+Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`，以及仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限）。Secrets 缺失时工作流输出 warning 并改用 debug 签名出包、跳过指纹校验；证书指纹只在发布签名模式下校验。CI 通过环境变量把签名传给 Gradle；本机构建使用 `android/key.properties`。`key.properties` 和证书文件不入库。
+
+## 日志与排障
+
+「我的 → 设置 → 播放调试日记」会汇总应用事件、播放器事件与**原生核心日志**，可一键复制。原生核心（`native/core`）内部出错时对外只回「本地核心处理失败，请重试」，真正的 panic 堆栈写在：
+
+| 平台 | 位置 |
+| --- | --- |
+| Android | 应用数据目录 `files/logs/native_stderr.log`（应用内日记页可直接看到） |
+| Windows | `%APPDATA%` 下应用数据目录 `logs\native_stderr.log`，也可在应用内日记页复制 |
+| iOS | 沙盒 `Library/Application Support/logs/native_stderr.log` |
+| 本地服务版 | 直接打印在启动终端，不写文件 |
+
+stderr 重定向由 bridge 的 `DuanjuInstallStderrLog` 完成：Windows 用 `SetStdHandle`（**不能**用 `_dup2`，`os.File.Fd()` 返回的是 HANDLE，传进去会触发 `__fastfail` 直接退出），其它平台不重定向，避免架构相关的编译风险。
+
+遇到「某个源点播就报处理失败」时，先看这里有没有 `native core panic: ...` 与随后的 Goroutine 调用链，再判断是哪个 provider 的哪一行。
 
 ## 开发与构建
 

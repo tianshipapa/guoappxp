@@ -635,7 +635,9 @@ class NativeRepository extends AppRepository {
     // 尽早把原生核心的标准错误重定向到日志文件：核心内部 panic 只会对外回
     // 「本地核心处理失败，请重试」，堆栈仅写 stderr，桌面端与 Android 都取不到。
     // 重定向后堆栈落在 <logs>/native_stderr.log。符号不存在时静默跳过。
-    installStderrLog(path.join(directory.path, 'logs', 'native_stderr.log'));
+    final stderrLog = path.join(directory.path, 'logs', 'native_stderr.log');
+    installStderrLog(stderrLog);
+    DiaryService.nativeStderrLogPath = stderrLog;
     if (!background) {
       DiaryService.nativeLogPath = path.join(directory.path, 'logs', 'app.log');
     }
