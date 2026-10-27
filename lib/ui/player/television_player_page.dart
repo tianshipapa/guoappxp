@@ -45,6 +45,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
   final _play = FocusNode();
   final _next = FocusNode();
   final _danmaku = FocusNode();
+  final _adBlock = FocusNode();
   final _speed = FocusNode();
   final _quality = FocusNode();
   final _retry = FocusNode();
@@ -92,6 +93,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       _play,
       _next,
       _danmaku,
+      _adBlock,
       _speed,
       _quality,
       _retry,
@@ -523,6 +525,15 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                   () => unawaited(_change(_session.toggleDanmaku)),
                   color: _session.danmakuEnabled ? colors.primary : null,
                 ),
+              _pill(
+                _adBlock,
+                _session.adBlock ? '去广告 开' : '去广告 关',
+                _session.adBlock ? '关闭去广告' : '打开去广告',
+                () => unawaited(
+                  _change(() => _session.setAdBlock(!_session.adBlock)),
+                ),
+                color: _session.adBlock ? colors.primary : null,
+              ),
               CompositedTransformTarget(
                 link: _links[_Menu.speed]!,
                 child: _pill(

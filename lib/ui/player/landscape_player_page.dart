@@ -21,6 +21,7 @@ import '../widgets/status_view.dart';
 import '../widgets/follow_button.dart';
 import 'episode_grid.dart';
 import 'playback_handle.dart';
+import 'player_gestures.dart';
 import 'playback_sheets.dart';
 import 'player_surface.dart';
 
@@ -65,6 +66,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   _Panel? _panel;
   DateTime _now = DateTime.now();
   ({int level, bool charging})? _battery;
+  late final PlayerGestures _gestures = PlayerGestures(session: _session);
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -114,6 +116,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     _streakTimer?.cancel();
     _clockTimer?.cancel();
     _seekTimer?.cancel();
+    _gestures.dispose();
     if (_holding) _session.endBoost();
     if (widget.onFullscreen == null) {
       if (_full == true && defaultTargetPlatform == TargetPlatform.windows) {
@@ -215,6 +218,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   }
 
   void _tapUp(TapUpDetails details, double width, bool full) {
+    // 刚做完滑动/亮度手势时抬手的事件不应再被当成「点按」。
+    if (_gestures.suppressTap) return;
     final x = details.localPosition.dx;
     final side = !full && widget.onFullscreen == null
         ? 0
@@ -427,13 +432,27 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           aspectRatio: session.aspectRatio,
         ),
         LayoutBuilder(
-          builder: (context, constraints) => GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapUp: (details) => _tapUp(details, constraints.maxWidth, full),
-            onLongPressStart: (_) => _pressStart(),
-            onLongPressEnd: (_) => _pressEnd(),
-            onLongPressCancel: _pressEnd,
+          builder: (context, constraints) => Listener(
+            onPointerDown: (event) => _gestures.pointerDown(
+              event,
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+            ),
+            onPointerMove: _gestures.pointerMove,
+            onPointerUp: _gestures.pointerUp,
+            onPointerCancel: _gestures.pointerCancel,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (details) => _tapUp(details, constraints.maxWidth, full),
+              onLongPressStart: (_) => _pressStart(),
+              onLongPressEnd: (_) => _pressEnd(),
+              onLongPressCancel: _pressEnd,
+            ),
           ),
+        ),
+        AnimatedBuilder(
+          animation: _gestures,
+          builder: (context, _) => GestureHud(state: _gestures.hud),
         ),
         if (session.ready && session.stalled)
           const IgnorePointer(

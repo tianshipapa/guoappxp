@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../download_converter.dart';
 import '../../download_overview.dart';
+import '../../live/live_page.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
@@ -65,6 +68,14 @@ class MinePage extends StatelessWidget {
 
   Widget _settings(BuildContext context) => _SettingsEntry(
     onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
+  );
+
+  /// 直播入口。与设置放在同一列，避免额外占一块版面。
+  Widget _live(BuildContext context) => _MineEntry(
+    icon: Icons.live_tv_rounded,
+    title: '直播',
+    subtitle: '卫视与直播频道',
+    onTap: () => unawaited(openLive(context, store: store)),
   );
 
   Widget _poster(
@@ -140,7 +151,14 @@ class MinePage extends StatelessWidget {
         const SizedBox(height: 16),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _settings(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _live(context),
+              const SizedBox(height: 10),
+              _settings(context),
+            ],
+          ),
         ),
       ],
     );
@@ -170,6 +188,8 @@ class MinePage extends StatelessWidget {
               _DownloadCard(downloads: downloads),
             ],
             const SizedBox(height: 16),
+            _live(context),
+            const SizedBox(height: 10),
             _settings(context),
           ],
         );
@@ -295,6 +315,14 @@ class MinePage extends StatelessWidget {
                         subtitle:
                             '${store.profile.admin ? '管理员' : '普通用户'} · 切换用户',
                         onTap: () => openUsers(context, store),
+                      ),
+                    ),
+                    Expanded(
+                      child: _TelevisionEntry(
+                        icon: Icons.live_tv_rounded,
+                        title: '直播',
+                        subtitle: '卫视与直播频道',
+                        onTap: () => unawaited(openLive(context, store: store)),
                       ),
                     ),
                     Expanded(
@@ -589,6 +617,76 @@ class _SettingsEntry extends StatelessWidget {
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 与「设置」同款的整行入口，用于直播等单一目的地。
+class _MineEntry extends StatelessWidget {
+  const _MineEntry({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return FocusRing(
+      radius: 20,
+      child: Material(
+        color: colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            height: 60,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                spacing: 14,
+                children: [
+                  Icon(icon, size: 22, color: colors.onSurfaceVariant),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   Icon(

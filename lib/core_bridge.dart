@@ -78,6 +78,7 @@ abstract class AppRepository {
     Episode episode, {
     int quality = 0,
     bool online = false,
+    bool adBlock = true,
   }) async => null;
   Future<void> cancelDanmaku() async {}
   Future<DanmakuPage> danmaku(
@@ -151,7 +152,8 @@ abstract class AppRepository {
     Drama drama,
     Episode episode, {
     int quality = 0,
-  }) => resolve(drama, episode, quality: quality);
+    bool adBlock = true,
+  }) => resolve(drama, episode, quality: quality, adBlock: adBlock);
   Future<void> initialize();
   Future<CatalogPage> catalog(
     String source, {
@@ -164,10 +166,39 @@ abstract class AppRepository {
   Future<String> cover(Drama drama, {bool force = false});
   bool coverCached(Drama drama) => false;
   Future<DramaDetail> detail(Drama drama);
-  Future<PlaybackPlan> resolve(Drama drama, Episode episode, {int quality = 0});
+  Future<PlaybackPlan> resolve(
+    Drama drama,
+    Episode episode, {
+    int quality = 0,
+    bool adBlock = true,
+  });
   Future<PlaybackPlan> fallback(PlaybackPlan current);
   Future<void> cancelPlayback();
   Future<void> release(String session);
+
+  // ---- 自定义源管理（所有人可用，不限制管理员）----
+  Future<List<CustomSourceSite>> customSources() async => const [];
+  Future<CustomSourceSite> addCustomSource({
+    required String name,
+    required String base,
+    String rule = '',
+    String kind = '',
+  }) async => throw AppFailure('当前环境不支持自定义源');
+  Future<CustomSourceSite> updateCustomSource(
+    String id, {
+    required String name,
+    required String base,
+    String rule = '',
+    String kind = '',
+  }) async => throw AppFailure('当前环境不支持自定义源');
+  Future<void> removeCustomSource(String id) async =>
+      throw AppFailure('当前环境不支持自定义源');
+  Future<String> exportCustomSources() async =>
+      throw AppFailure('当前环境不支持自定义源');
+  Future<Map<String, dynamic>> importCustomSources(String content) async =>
+      throw AppFailure('当前环境不支持自定义源');
+  Future<int> resetCustomSources() async =>
+      throw AppFailure('当前环境不支持自定义源');
 }
 
 class NativeRepository extends AppRepository {
@@ -253,6 +284,7 @@ class NativeRepository extends AppRepository {
     Episode episode, {
     int quality = 0,
     bool online = false,
+    bool adBlock = true,
   }) async => PlaybackPlan.fromJson(
     await _read('preload', {
       'action': 'preload',
@@ -260,6 +292,7 @@ class NativeRepository extends AppRepository {
       'chapter': episode.raw,
       'index': episode.number,
       'quality': quality,
+      'adBlock': adBlock,
       'force': online || access?.canDownload == false,
     }),
   );
@@ -670,6 +703,7 @@ class NativeRepository extends AppRepository {
     Drama drama,
     Episode episode, {
     int quality = 0,
+    bool adBlock = true,
   }) async => PlaybackPlan.fromJson(
     await _call({
       'action': 'resolve',
@@ -677,6 +711,7 @@ class NativeRepository extends AppRepository {
       'chapter': episode.raw,
       'index': episode.number,
       'quality': quality,
+      'adBlock': adBlock,
       'sequence': ++_playbackSequence,
     }),
   );
@@ -839,6 +874,7 @@ class NativeRepository extends AppRepository {
     Drama drama,
     Episode episode, {
     int quality = 0,
+    bool adBlock = true,
   }) async => PlaybackPlan.fromJson(
     await _call({
       'action': 'resolve',
@@ -846,6 +882,7 @@ class NativeRepository extends AppRepository {
       'chapter': episode.raw,
       'index': episode.number,
       'quality': quality,
+      'adBlock': adBlock,
       'force': true,
       'sequence': ++_playbackSequence,
     }),
@@ -859,5 +896,82 @@ class NativeRepository extends AppRepository {
     try {
       await _call({'action': 'release', 'session': session});
     } catch (_) {}
+  }
+
+  // ---- 自定义源管理 ----
+  //
+  // 说明：这里刻意不调用 _adminPermission()。自定义源与源显示开关属于
+  // 「谁用谁配」的本机偏好，普通用户也应该能自己加源、改源、删源；
+  // 只有下载目录、系统代理这类会影响整机/其它用户的设置才限制管理员。
+
+  @override
+  Future<List<CustomSourceSite>> customSources() async {
+    final result = await _call({'action': 'customSources'});
+    return [
+      for (final row in result['items'] as List? ?? const [])
+        CustomSourceSite.fromJson(Map<String, dynamic>.from(row as Map)),
+    ];
+  }
+
+  @override
+  Future<CustomSourceSite> addCustomSource({
+    required String name,
+    required String base,
+    String rule = '',
+    String kind = '',
+  }) async {
+    final result = await _call({
+      'action': 'addCustomSource',
+      'name': name,
+      'base': base,
+      'rule': rule,
+      'kind': kind,
+    });
+    return CustomSourceSite.fromJson(Map<String, dynamic>.from(result as Map));
+  }
+
+  @override
+  Future<CustomSourceSite> updateCustomSource(
+    String id, {
+    required String name,
+    required String base,
+    String rule = '',
+    String kind = '',
+  }) async {
+    final result = await _call({
+      'action': 'updateCustomSource',
+      'source': id,
+      'name': name,
+      'base': base,
+      'rule': rule,
+      'kind': kind,
+    });
+    return CustomSourceSite.fromJson(Map<String, dynamic>.from(result as Map));
+  }
+
+  @override
+  Future<void> removeCustomSource(String id) async {
+    await _call({'action': 'removeCustomSource', 'source': id});
+  }
+
+  @override
+  Future<String> exportCustomSources() async {
+    final result = await _call({'action': 'exportCustomSources'});
+    return (result as Map)['content'] as String? ?? '';
+  }
+
+  @override
+  Future<Map<String, dynamic>> importCustomSources(String content) async {
+    final result = await _call({
+      'action': 'importCustomSources',
+      'content': content,
+    });
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  @override
+  Future<int> resetCustomSources() async {
+    final result = await _call({'action': 'resetCustomSources'});
+    return (result as Map)['removed'] as int? ?? 0;
   }
 }

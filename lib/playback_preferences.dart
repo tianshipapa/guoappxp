@@ -11,6 +11,7 @@ class PlaybackPreferences {
     this.autoAdvance = true,
     this.danmaku = true,
     this.preload = true,
+    this.adBlock = true,
     this.enhancement = const VideoEnhancementPreferences(),
     this.televisionDecoder = TelevisionDecoder.optimized,
   });
@@ -20,6 +21,9 @@ class PlaybackPreferences {
   final bool autoAdvance;
   final bool danmaku;
   final bool preload;
+
+  /// 解析时是否尝试跳过源站片头广告；关闭后直接播放原始视频流。
+  final bool adBlock;
   final VideoEnhancementPreferences enhancement;
   final TelevisionDecoder televisionDecoder;
 
@@ -29,6 +33,7 @@ class PlaybackPreferences {
     bool? autoAdvance,
     bool? danmaku,
     bool? preload,
+    bool? adBlock,
     VideoEnhancementPreferences? enhancement,
     TelevisionDecoder? televisionDecoder,
   }) => PlaybackPreferences(
@@ -37,6 +42,7 @@ class PlaybackPreferences {
     autoAdvance: autoAdvance ?? this.autoAdvance,
     danmaku: danmaku ?? this.danmaku,
     preload: preload ?? this.preload,
+    adBlock: adBlock ?? this.adBlock,
     enhancement: enhancement ?? this.enhancement,
     televisionDecoder: televisionDecoder ?? this.televisionDecoder,
   );
@@ -47,6 +53,7 @@ class PlaybackPreferences {
     'autoAdvance': autoAdvance,
     'danmaku': danmaku,
     'preload': preload,
+    'adBlock': adBlock,
     'enhancement': enhancement.toJson(),
     'televisionDecoder': televisionDecoder.name,
   };
@@ -57,6 +64,7 @@ class PlaybackPreferences {
     final autoAdvance = value['autoAdvance'] as bool? ?? true;
     final danmaku = value['danmaku'] as bool? ?? true;
     final preload = value['preload'] as bool? ?? true;
+    final adBlock = value['adBlock'] as bool? ?? true;
     if (!playbackSpeeds.contains(speed) || quality < 0 || quality > 4320) {
       throw const FormatException('播放偏好无效');
     }
@@ -66,6 +74,7 @@ class PlaybackPreferences {
       autoAdvance: autoAdvance,
       danmaku: danmaku,
       preload: preload,
+      adBlock: adBlock,
       enhancement: VideoEnhancementPreferences.fromJson(value['enhancement']),
       televisionDecoder:
           TelevisionDecoder.values.asNameMap()[value['televisionDecoder']] ??

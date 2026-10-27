@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../explore_feed.dart';
+import '../../live/live_page.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
@@ -143,6 +146,11 @@ class ExplorePageState extends State<ExplorePage> {
                   onOpenSearch: () => openSearch(context, widget.store, source),
                   onSearchSubmitted: (query) => _searchSubmitted(source, query),
                   actions: [
+                    BarButton(
+                      icon: Icons.live_tv_rounded,
+                      tooltip: '直播',
+                      onPressed: () => unawaited(openLive(context, store: widget.store)),
+                    ),
                     if (desktop)
                       BarButton(
                         icon: Icons.refresh_rounded,

@@ -50,6 +50,7 @@ class PlaybackSession extends ChangeNotifier {
     _speed = preferences.speed;
     _quality = preferences.quality;
     _danmakuEnabled = preferences.danmaku;
+    _adBlock = preferences.adBlock;
     _loader = PlaybackLoader(repository);
     _preloader = PlaybackPreloader(repository)..addListener(_prime);
     danmaku = DanmakuController(repository)..setEnabled(_danmakuEnabled);
@@ -163,6 +164,7 @@ class PlaybackSession extends ChangeNotifier {
   double _speed = 1;
   int _quality = 0;
   bool _danmakuEnabled = true;
+  bool _adBlock = true;
   double _aspectRatio = 9 / 16;
   bool _aspectKnown = false;
   double _resumePosition = 0;
@@ -194,6 +196,9 @@ class PlaybackSession extends ChangeNotifier {
   List<int> get qualities => _plan?.qualities ?? const [];
   bool get danmakuSupported => detail.drama.source == SourceSite.hongguo.id;
   bool get danmakuEnabled => _danmakuEnabled;
+
+  /// 去广告：解析播放地址时尝试跳过源站片头广告。
+  bool get adBlock => _adBlock;
   bool get hasPrevious => _index > 0;
   bool get hasNext => _index + 1 < detail.episodes.length;
   String get qualityLabel {
@@ -215,6 +220,7 @@ class PlaybackSession extends ChangeNotifier {
     speed: _speed,
     quality: _quality,
     danmaku: _danmakuEnabled,
+    adBlock: _adBlock,
     autoAdvance: true,
     preload: true,
   );
@@ -319,6 +325,7 @@ class PlaybackSession extends ChangeNotifier {
       detail.episodes[_index + 1],
       quality: _quality,
       online: _online,
+      adBlock: _adBlock,
     );
   }
 
@@ -484,6 +491,7 @@ class PlaybackSession extends ChangeNotifier {
             detail.episodes[index],
             quality: _quality,
             online: _online,
+            adBlock: _adBlock,
           )
         : null;
     _preloader.clear();
@@ -538,6 +546,7 @@ class PlaybackSession extends ChangeNotifier {
               detail.episodes[index],
               quality: _quality,
               online: _online,
+              adBlock: _adBlock,
             );
       if (prepared == null) return;
       final plan = prepared;
@@ -657,6 +666,7 @@ class PlaybackSession extends ChangeNotifier {
       detail.episodes[next],
       quality: _quality,
       online: _online,
+      adBlock: _adBlock,
     );
     if (plan == null) {
       _standbyIndex = -1;
@@ -905,6 +915,20 @@ class PlaybackSession extends ChangeNotifier {
     danmaku.setEnabled(enabled);
     _syncDanmaku();
     _notify();
+  }
+
+  Future<void> setAdBlock(bool value) async {
+    if (value == _adBlock) return;
+    await _savePreferences(_preferences.copyWith(adBlock: value));
+    _adBlock = value;
+    _preloader.clear();
+    _notify();
+    if (!ready || _plan?.local == true) return;
+    await play(
+      _index,
+      position: currentPosition,
+      playWhenReady: _error != null || player.state.playing,
+    );
   }
 
   void setForeground(bool visible) {

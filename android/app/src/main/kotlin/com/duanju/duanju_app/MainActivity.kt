@@ -259,6 +259,40 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         }
                         "battery" -> result.success(runCatching { battery() }.getOrNull())
+                        // 播放器手势的亮度调节：只改本窗口的 screenBrightness，
+                        // 不动系统设置，退出播放器时用 resetBrightness 还原。
+                        "getBrightness" -> {
+                            val lp = window.attributes
+                            val current = if (lp.screenBrightness >= 0f) {
+                                lp.screenBrightness.toDouble()
+                            } else {
+                                runCatching {
+                                    val sys = Settings.System.getInt(
+                                        contentResolver,
+                                        Settings.System.SCREEN_BRIGHTNESS
+                                    )
+                                    (sys / 255.0).coerceIn(0.0, 1.0)
+                                }.getOrDefault(0.5)
+                            }
+                            result.success(current)
+                        }
+                        "setBrightness" -> {
+                            val value = call.argument<Double>("brightness")?.toFloat()
+                            if (value == null) {
+                                result.error("invalid_arg", "缺少亮度数值", null)
+                            } else {
+                                val lp = window.attributes
+                                lp.screenBrightness = value.coerceIn(0.01f, 1.0f)
+                                window.attributes = lp
+                                result.success(true)
+                            }
+                        }
+                        "resetBrightness" -> {
+                            val lp = window.attributes
+                            lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                            window.attributes = lp
+                            result.success(true)
+                        }
                         "playbackPower" -> result.success(runCatching { playbackPower() }.getOrNull())
                         "compatibleRendering" -> result.success(compatibleRendering())
                         "setCompatibleRendering" -> {

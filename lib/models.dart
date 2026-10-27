@@ -15,7 +15,9 @@ class SourceSite {
       id == 'dsd' ||
       id == 'sorani' ||
       id == 'guipian' ||
-      id == 'hanxiaoquan';
+      id == 'hanxiaoquan' ||
+      id == 'ikanbot' ||
+      id == 'a123';
   bool get searchSuggestions => id == 'hongguo';
   String get groupId => switch (id) {
     'huangguo-video' || 'huangguoai' || 'cloudfront' => 'huangguo',
@@ -38,8 +40,25 @@ class SourceSite {
     '韩小圈',
     '韩剧 · 韩国电影 · 综艺动漫',
   );
+  static const ikanbot = SourceSite(
+    'ikanbot',
+    '爱看机器人',
+    '电影 · 剧集 · 多线路搜索',
+  );
+  static const a123 = SourceSite(
+    'a123',
+    'A123',
+    '电影 · 连续剧 · 综艺 · 动漫 · 多线路',
+  );
 
-  static const primaryValues = [hongguo, hanxiaoquan, guipian, sorani];
+  static const primaryValues = [
+    hongguo,
+    a123,
+    ikanbot,
+    hanxiaoquan,
+    guipian,
+    sorani,
+  ];
 
   static const restrictedValues = [
     SourceSite('huangdou', '黄豆', '精选短剧'),
@@ -53,12 +72,66 @@ class SourceSite {
   static const knownValues = [...primaryValues, ...restrictedValues];
   static const allValues = [...primaryValues, ...restrictedValues];
   static const values = allSourcesEnabled ? knownValues : [hongguo];
-  static bool isAvailable(String id) => values.any((site) => site.id == id);
-  static bool isKnown(String id) => allValues.any((site) => site.id == id);
+
+  /// 当前会话已注册的自定义源 ID，供可用性判断与站源归一化使用。
+  static final Set<String> customIds = {};
+
+  /// 自定义源 ID → 显示名，让观看记录、追剧、下载等处的来源标签能显示真实名称。
+  static final Map<String, String> customNames = {};
+  static bool isCustomId(String id) => id.startsWith('custom:');
+  static bool isAvailable(String id) =>
+      values.any((site) => site.id == id) || customIds.contains(id);
+  static bool isKnown(String id) =>
+      allValues.any((site) => site.id == id) || customIds.contains(id);
   static bool isRestricted(String id) =>
       restrictedValues.any((site) => site.id == id);
-  static SourceSite byId(String id) =>
-      allValues.firstWhere((site) => site.id == id, orElse: () => hongguo);
+  static String customName(String id) {
+    if (id.startsWith('custom:')) return customNames[id] ?? '自定义源';
+    return id;
+  }
+
+  static SourceSite byId(String id) {
+    if (customIds.contains(id)) {
+      return SourceSite(id, customName(id), '自定义站源');
+    }
+    return allValues.firstWhere((site) => site.id == id, orElse: () => hongguo);
+  }
+}
+
+class CustomSourceSite {
+  const CustomSourceSite({
+    required this.id,
+    required this.name,
+    required this.base,
+    this.rule = '',
+    this.kind = '',
+  });
+  final String id;
+  final String name;
+  final String base;
+  final String rule;
+
+  /// 源类型：web=网页源（走 HTML 抓取）/ json=JSON 源（直连 API）/ 空=自动识别。
+  final String kind;
+
+  factory CustomSourceSite.fromJson(Map<String, dynamic> json) =>
+      CustomSourceSite(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        base: json['base'] as String? ?? '',
+        rule: json['rule'] as String? ?? '',
+        kind: (json['kind'] as String? ?? json['type'] as String? ?? ''),
+      );
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'base': base,
+    if (rule.isNotEmpty) 'rule': rule,
+    if (kind.isNotEmpty) 'kind': kind,
+  };
+  bool get isCustom => SourceSite.isCustomId(id);
+  bool get hasRule => rule.trim().isNotEmpty;
+  SourceSite get asSourceSite => SourceSite(id, name, base);
 }
 
 class SourceGroup {

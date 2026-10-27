@@ -100,9 +100,20 @@ class _AppBootstrapState extends State<AppBootstrap>
         final local = store = LocalStore(preferences);
         repository.access = local;
       });
+      unawaited(_loadCustomSources());
     } catch (failure) {
       if (mounted) setState(() => error = failure);
     }
+  }
+
+  /// 启动时把原生核心的自定义源同步到本地缓存，让源栏、搜索、追剧、观看记录
+  /// 在首帧之后就能按真实名称显示自定义源；核心不可用时静默忽略。
+  Future<void> _loadCustomSources() async {
+    final local = store;
+    if (local == null) return;
+    try {
+      await local.syncCustomSources(await repository.customSources());
+    } catch (_) {}
   }
 
   @override

@@ -140,6 +140,23 @@ class PlaybackSettings extends StatelessWidget {
                             ),
                         ],
                 ),
+                if (!session.local) ...[
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('去广告'),
+                    subtitle: Text(
+                      session.adBlock
+                          ? '解析时尝试跳过源站片头广告'
+                          : '直接播放源站原始视频流',
+                    ),
+                    value: session.adBlock,
+                    onChanged: session.ready
+                        ? (value) =>
+                              _change(() => session.setAdBlock(value))
+                        : null,
+                  ),
+                ],
                 if (session.danmakuSupported) ...[
                   const SizedBox(height: 8),
                   SwitchListTile(

@@ -37,6 +37,7 @@ class LocalStore extends ChangeNotifier {
   int _epoch = 0;
   int _failures = 0;
   Map<String, bool> _sourceSwitches = {};
+  List<CustomSourceSite> _customSources = [];
   DateTime _retryAfter = DateTime(2000);
 
   void _initialize() {
@@ -60,6 +61,7 @@ class LocalStore extends ChangeNotifier {
       _configurationError = null;
       _locked = forceLogin && profile.protected;
       _loadSourceSwitches();
+      _loadCustomSources();
       _loadLibrary();
       _loadSeriesCandidates();
       _queue(() => _moveSeriesCandidates().catchError((Object _) {}));
@@ -121,17 +123,27 @@ class LocalStore extends ChangeNotifier {
   }
 
   bool get canDownload => !locked && (profile.admin || profile.download);
+  /// 自定义源属于「谁用谁配」的本机偏好，不参与用户级源权限判定：
+  /// 所有用户都能添加、编辑、删除，并在自己的列表里看到它们。
   bool allowsSource(String source) =>
       !locked &&
       SourceSite.isAvailable(source) &&
-      profile.allows(source) &&
+      (SourceSite.isCustomId(source) || profile.allows(source)) &&
       sourceEnabled(source);
-  List<SourceSite> get sources =>
-      SourceSite.values.where((site) => allowsSource(site.id)).toList();
+  List<SourceSite> get sources => [
+    ...SourceSite.values.where((site) => allowsSource(site.id)),
+    for (final site in _customSources)
+      if (allowsSource(site.id)) site.asSourceSite,
+  ];
   List<SourceSite> get permittedSources => [
     for (final site in SourceSite.values)
       if (!locked && profile.allows(site.id)) site,
+    for (final site in _customSources)
+      if (!locked) site.asSourceSite,
   ];
+
+  /// 已登记的本地自定义源（原生核心为准，这里只缓存展示用）。
+  List<CustomSourceSite> get customSources => List.unmodifiable(_customSources);
 
   bool sourceEnabled(String source) =>
       _sourceSwitches[source] ?? !SourceSite.isRestricted(source);
@@ -147,13 +159,68 @@ class LocalStore extends ChangeNotifier {
     }
   }
 
+  void _loadCustomSources() {
+    if (_configurationError != null) {
+      _customSources = [];
+      _syncCustomIds();
+      return;
+    }
+    try {
+      _customSources = [
+        for (final row in readJsonList(_string('customSources')))
+          CustomSourceSite.fromJson(row),
+      ];
+    } catch (_) {
+      _customSources = [];
+    }
+    _syncCustomIds();
+  }
+
+  void _syncCustomIds() {
+    SourceSite.customIds
+      ..clear()
+      ..addAll(_customSources.map((site) => site.id));
+    SourceSite.customNames
+      ..clear()
+      ..addEntries(
+        _customSources.map((site) => MapEntry(site.id, site.name)),
+      );
+  }
+
+  /// 把原生核心返回的自定义源列表写入本地，并同步到 [SourceSite.customIds]，
+  /// 让源栏、搜索、追剧等按 id 判断可用性的地方立刻生效。
+  Future<void> syncCustomSources(List<CustomSourceSite> sources) async {
+    final epoch = _epoch;
+    await _queue(() async {
+      if (locked || epoch != _epoch) return;
+      final sorted = List<CustomSourceSite>.of(sources)
+        ..sort((a, b) {
+          final la = a.name.toLowerCase(), lb = b.name.toLowerCase();
+          return la.compareTo(lb);
+        });
+      final serialized = jsonEncode(
+        sorted.map((site) => site.toJson()).toList(),
+      );
+      if (serialized == _string('customSources')) {
+        _customSources = sorted;
+        _syncCustomIds();
+        return;
+      }
+      await _commit({'customSources': serialized});
+      _customSources = sorted;
+      _syncCustomIds();
+      _notify();
+    });
+  }
+
   Future<void> setSourceEnabled(String source, bool enabled) {
     if (!SourceSite.isAvailable(source)) {
       return Future.error(StateError('站源无效'));
     }
     final epoch = _epoch;
     return _queue(() async {
-      _requireAdmin();
+      // 源显示开关对所有用户开放：每个用户自己决定看哪些源，
+      // 不再要求管理员身份（下载目录、系统代理等整机设置仍限管理员）。
       if (epoch != _epoch) throw StateError('当前用户已变更，请重试');
       final switches = {..._sourceSwitches, source: enabled};
       await _commit({'sourceSwitches': jsonEncode(switches)});
@@ -1148,6 +1215,7 @@ class LocalStore extends ChangeNotifier {
     _configurationError = null;
     _locked = forceLogin && profile.protected;
     _loadSourceSwitches();
+    _loadCustomSources();
     _loadLibrary();
     _loadSeriesCandidates();
     _epoch++;

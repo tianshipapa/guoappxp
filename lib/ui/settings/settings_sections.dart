@@ -136,6 +136,13 @@ class SettingsSection extends StatelessWidget {
             onChanged: (quality) =>
                 savePreferences(preferences.copyWith(quality: quality)),
           ),
+          SwitchTile(
+            title: '去广告',
+            subtitle: '解析播放地址时尝试跳过源站片头广告；关闭后直接播放原始视频流',
+            value: preferences.adBlock,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(adBlock: value)),
+          ),
         ],
       ),
       SettingsCard(
@@ -232,16 +239,18 @@ class SettingsSection extends StatelessWidget {
     final settings = editor.settings;
     final editable = settings != null && !editor.saving;
     return [
-      if (allSourcesEnabled)
-        SettingsCard(
-          children: [
-            SettingsTile(
-              title: '站源管理',
-              subtitle: '开启或关闭站源',
-              onTap: () => open('站源管理', (_) => SourcesView(store: store)),
-            ),
-          ],
-        ),
+      SettingsCard(
+        children: [
+          SettingsTile(
+            icon: Icons.dns_outlined,
+            title: '站源管理',
+            subtitle: allSourcesEnabled
+                ? '开关内置源、管理自定义源'
+                : '开关站源、管理自定义源',
+            onTap: () => open('站源管理', (_) => SourcesView(store: store)),
+          ),
+        ],
+      ),
       SettingsCard(
         children: [
           ?_editorError(),

@@ -10,6 +10,7 @@ import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
 import 'playback_handle.dart';
+import 'player_gestures.dart';
 
 String formatClock(Duration value) {
   final seconds = value.inSeconds;
@@ -64,6 +65,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   double? _seekTarget;
   Timer? _seekTimer;
   Player? _bound;
+  late final PlayerGestures _gestures = PlayerGestures(session: _session);
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -123,6 +125,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     _seekTimer?.cancel();
     _tapTimer?.cancel();
     _streakTimer?.cancel();
+    _gestures.dispose();
     if (_holding) _session.endBoost();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
@@ -194,6 +197,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   void _tapUp(TapUpDetails details, double width) {
+    // 刚做完滑动/亮度手势时抬手的事件不应再被当成「点按」。
+    if (_gestures.suppressTap) return;
     widget.onSurface();
     final x = details.localPosition.dx;
     final side = x < width / 4
@@ -312,12 +317,22 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             ),
             if (widget.touch)
               LayoutBuilder(
-                builder: (context, constraints) => GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: (details) => _tapUp(details, constraints.maxWidth),
-                  onLongPressStart: (_) => _pressStart(),
-                  onLongPressEnd: (_) => _pressEnd(),
-                  onLongPressCancel: _pressEnd,
+                builder: (context, constraints) => Listener(
+                  onPointerDown: (event) => _gestures.pointerDown(
+                    event,
+                    width: constraints.maxWidth,
+                    height: constraints.maxHeight,
+                  ),
+                  onPointerMove: _gestures.pointerMove,
+                  onPointerUp: _gestures.pointerUp,
+                  onPointerCancel: _gestures.pointerCancel,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (details) => _tapUp(details, constraints.maxWidth),
+                    onLongPressStart: (_) => _pressStart(),
+                    onLongPressEnd: (_) => _pressEnd(),
+                    onLongPressCancel: _pressEnd,
+                  ),
                 ),
               )
             else
@@ -335,6 +350,10 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               ),
             if (_session.ready && !state.playing) _pausedMark(),
             if (_streak != 0) _streakBadge(),
+            AnimatedBuilder(
+              animation: _gestures,
+              builder: (context, _) => GestureHud(state: _gestures.hud),
+            ),
             IgnorePointer(
               ignoring: !visible,
               child: ExcludeFocus(
