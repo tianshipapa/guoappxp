@@ -200,6 +200,14 @@ abstract class AppRepository {
     bool force = false,
   });
   Future<CatalogPage> cached(String source, {String category = ''});
+
+  /// 跨源聚合搜索：启动一轮并发搜索并立刻返回首个快照，
+  /// 之后用 [searchPoll] 增量取结果，无需等所有站源搜完。
+  Future<SearchProgress> searchStart(List<String> sources, String query) =>
+      throw AppFailure('当前环境不支持全部源搜索');
+  Future<SearchProgress> searchPoll(String id) =>
+      throw AppFailure('当前环境不支持全部源搜索');
+  Future<void> searchCancel(String id) async {}
   Future<String> cover(Drama drama, {bool force = false});
   bool coverCached(Drama drama) => false;
   Future<DramaDetail> detail(Drama drama);
@@ -230,12 +238,10 @@ abstract class AppRepository {
   }) async => throw AppFailure('当前环境不支持自定义源');
   Future<void> removeCustomSource(String id) async =>
       throw AppFailure('当前环境不支持自定义源');
-  Future<String> exportCustomSources() async =>
-      throw AppFailure('当前环境不支持自定义源');
+  Future<String> exportCustomSources() async => throw AppFailure('当前环境不支持自定义源');
   Future<Map<String, dynamic>> importCustomSources(String content) async =>
       throw AppFailure('当前环境不支持自定义源');
-  Future<int> resetCustomSources() async =>
-      throw AppFailure('当前环境不支持自定义源');
+  Future<int> resetCustomSources() async => throw AppFailure('当前环境不支持自定义源');
 }
 
 class NativeRepository extends AppRepository {
@@ -698,6 +704,31 @@ class NativeRepository extends AppRepository {
           'category': category,
         }),
       );
+  @override
+  Future<SearchProgress> searchStart(
+    List<String> sources,
+    String query,
+  ) async => SearchProgress.fromJson(
+    await _call({
+      'action': 'searchStart',
+      'sources': sources,
+      'query': query,
+      'page': 1,
+    }),
+  );
+  @override
+  Future<SearchProgress> searchPoll(String id) async => SearchProgress.fromJson(
+    await _call({'action': 'searchPoll', 'search': id}),
+  );
+  @override
+  Future<void> searchCancel(String id) async {
+    try {
+      await _call({'action': 'searchCancel', 'search': id});
+    } catch (_) {
+      // 会话已结束或核心正在重启：取消失败不算错误。
+    }
+  }
+
   @override
   bool coverCached(Drama drama) =>
       _coverPaths.containsKey('${drama.id}\u0000${drama.cover}');

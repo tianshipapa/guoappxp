@@ -40,16 +40,8 @@ class SourceSite {
     '韩小圈',
     '韩剧 · 韩国电影 · 综艺动漫',
   );
-  static const ikanbot = SourceSite(
-    'ikanbot',
-    '爱看机器人',
-    '电影 · 剧集 · 多线路搜索',
-  );
-  static const a123 = SourceSite(
-    'a123',
-    'A123',
-    '电影 · 连续剧 · 综艺 · 动漫 · 多线路',
-  );
+  static const ikanbot = SourceSite('ikanbot', '爱看机器人', '电影 · 剧集 · 多线路搜索');
+  static const a123 = SourceSite('a123', 'A123', '电影 · 连续剧 · 综艺 · 动漫 · 多线路');
 
   static const primaryValues = [
     hongguo,
@@ -184,6 +176,7 @@ class Drama {
     this.onlineDate = '',
     this.tags = const [],
     this.releaseStatus = '',
+    this.peers = const [],
   }) : vipStatus = vip;
   final String id;
   final String source;
@@ -200,6 +193,9 @@ class Drama {
   final String onlineDate;
   final List<String> tags;
   final String releaseStatus;
+
+  /// 跨源聚合搜索里同一部剧在其它站源的副本，供「全部源」结果展示与切换播放源。
+  final List<Drama> peers;
   String get releaseLabel => switch (releaseStatus) {
     'finished' || 'completed' => '已完结',
     'ongoing' => '连载中',
@@ -227,6 +223,10 @@ class Drama {
     onlineDate: json['onlineDate'] as String? ?? '',
     tags: (json['tags'] as List? ?? const []).whereType<String>().toList(),
     releaseStatus: json['releaseStatus'] as String? ?? '',
+    peers: [
+      for (final row in json['peers'] as List? ?? const [])
+        Drama.fromJson(Map<String, dynamic>.from(row as Map)),
+    ],
   );
   Map<String, dynamic> toJson() => {
     'metadataSchema': 1,
@@ -344,6 +344,65 @@ class CatalogPage {
     warning: json['warning'] as String? ?? '',
     page: intValue(json['page']) > 0 ? intValue(json['page']) : 1,
     fresh: json['fresh'] == true,
+  );
+}
+
+/// 跨源聚合搜索的进度快照。
+///
+/// 原生核心一边搜一边回：每条 [items] 是「截至目前所有已返回站源」的归一去重结果，
+/// [done] / [total] 表示完成进度，[pending] 是还没回来的站源。界面据此边搜边显示，
+/// 不必等最慢的站源。
+class SearchProgress {
+  const SearchProgress({
+    this.id = '',
+    this.query = '',
+    this.items = const [],
+    this.sources = const [],
+    this.pending = const [],
+    this.failures = const {},
+    this.warning = '',
+    this.total = 0,
+    this.done = 0,
+    this.finished = false,
+  });
+  final String id;
+  final String query;
+  final List<Drama> items;
+
+  /// 已成功返回的站源。
+  final List<String> sources;
+
+  /// 仍在搜索中的站源。
+  final List<String> pending;
+  final Map<String, String> failures;
+  final String warning;
+  final int total;
+  final int done;
+  final bool finished;
+
+  bool get running => !finished;
+
+  factory SearchProgress.fromJson(Map<String, dynamic> json) => SearchProgress(
+    id: json['search'] as String? ?? '',
+    query: json['query'] as String? ?? '',
+    items: [
+      for (final row in json['items'] as List? ?? const [])
+        Drama.fromJson(Map<String, dynamic>.from(row as Map)),
+    ],
+    sources: (json['sources'] as List? ?? const [])
+        .whereType<String>()
+        .toList(),
+    pending: (json['pending'] as List? ?? const [])
+        .whereType<String>()
+        .toList(),
+    failures: {
+      for (final entry in (json['failures'] as Map? ?? const {}).entries)
+        entry.key as String: '${entry.value}',
+    },
+    warning: json['warning'] as String? ?? '',
+    total: intValue(json['total']),
+    done: intValue(json['done']),
+    finished: json['finished'] == true,
   );
 }
 

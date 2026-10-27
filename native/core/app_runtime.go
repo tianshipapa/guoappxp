@@ -95,12 +95,16 @@ type nativeDrama struct {
 	OnlineDate     string   `json:"onlineDate,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 	ReleaseStatus  string   `json:"releaseStatus,omitempty"`
+	// Peers 在跨源聚合搜索里带上其它站源的同一部剧，供界面一键切换播放源。
+	Peers []nativeDrama `json:"peers,omitempty"`
 }
 
 type nativeInput struct {
 	SystemProxy     nativeSystemProxy       `json:"systemProxy"`
 	Settings        nativeResourceSettings  `json:"settings"`
 	JobIDs          []string                `json:"jobIds"`
+	Sources         []string                `json:"sources"`
+	Search          string                  `json:"search"`
 	PlaybackSession string                  `json:"playbackSession"`
 	StartMS         int64                   `json:"startMs"`
 	DurationMS      int64                   `json:"durationMs"`
@@ -182,6 +186,9 @@ type nativeEngine struct {
 	sourceCatalogMu  sync.Mutex
 	sourceCatalogs   map[string]chan struct{}
 	customRegistry   *customMaccmsRegistry
+	// 跨源聚合搜索的进行中会话：searchStart 建会话，searchPoll 读快照。
+	searchMu sync.Mutex
+	searches map[string]*nativeSearchSession
 }
 
 var nativeState struct {
@@ -286,7 +293,7 @@ func newNativeEngine(directory string) (*nativeEngine, error) {
 			}
 			return nil
 		}}
-	engine := &nativeEngine{downloader: d, directory: directory, catalogs: map[string][]nativeDrama{}, catalogStates: map[string]nativeCatalogState{}}
+	engine := &nativeEngine{downloader: d, directory: directory, catalogs: map[string][]nativeDrama{}, catalogStates: map[string]nativeCatalogState{}, searches: map[string]*nativeSearchSession{}}
 	engine.loadResourceSettings()
 	d.loadRankingCache()
 	engine.loadCatalogCache()
@@ -443,6 +450,16 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return plan, err
 	case "catalog":
 		return engine.nativeCatalog(ctx, input)
+	// 跨源聚合搜索：start 立刻建会话返回，poll 取增量快照，cancel 主动放弃。
+	case "searchStart":
+		return engine.nativeSearchStart(input)
+	case "searchPoll":
+		return engine.nativeSearchPoll(input)
+	case "searchCancel":
+		engine.nativeSearchCancel(input.Search)
+		return true, nil
+	case "searchAcross":
+		return engine.nativeSearchAcross(ctx, input)
 	case "cached":
 		if !validNativeCategory(canonicalProviderSource(input.Source), input.Category) {
 			return nil, errors.New("内容分类无效")
@@ -552,90 +569,14 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 			return cached, nil
 		}
 	}
-	d := engine.downloader
 	result := nativeCatalogResult{Items: []nativeDrama{}, Page: page}
-	if query != "" && source == sourceHongguo {
-		var entry hongguoSearchEntry
-		var err error
-		if page == 1 {
-			entry, err = d.searchHongguoDramas(ctx, query)
-		} else if keyword, keywordErr := hongguoSearchKeyword(query); keywordErr != nil {
-			err = keywordErr
-		} else {
-			entry, err = d.fetchHongguoSearchPage(ctx, keyword, page)
-		}
-		if err != nil {
-			return result, err
-		}
-		for _, drama := range entry.Dramas {
-			result.Items = append(result.Items, nativeNormalize(drama))
-		}
-		result.Warning, result.HasMore = entry.Warning, entry.HasMore
-		return result, nil
-	}
-	if query != "" && source == sourceHuangju {
-		items, more, err := d.fetchHuangjuCatalogPage(ctx, page, "", query)
-		if err != nil {
-			return result, err
-		}
-		for _, drama := range items {
-			result.Items = append(result.Items, nativeNormalize(drama))
-		}
-		result.HasMore = more
-		return result, nil
-	}
-	if query != "" && source == sourceSorani {
-		items, more, err := d.fetchSoraniCatalogPage(ctx, page, "", query)
-		if err != nil {
-			return result, err
-		}
-		for _, drama := range items {
-			result.Items = append(result.Items, nativeNormalize(drama))
-		}
-		result.HasMore = more
-		return result, nil
-	}
-	if query != "" && source == sourceGuipian {
-		items, more, err := d.fetchGuipianCatalogPage(ctx, page, "", query)
-		if err != nil {
-			return result, err
-		}
-		for _, drama := range items {
-			result.Items = append(result.Items, nativeNormalize(drama))
-		}
-		result.HasMore = more
-		return result, nil
-	}
-	if query != "" && source == sourceHanxiaoquan {
-		items, more, err := d.fetchHanxiaoquanCatalogPage(ctx, page, "", query)
-		if err != nil {
-			return result, err
-		}
-		for _, drama := range items {
-			result.Items = append(result.Items, nativeNormalize(drama))
-		}
-		result.HasMore = more
-		return result, nil
-	}
-	if query != "" && (source == sourceYeguo || source == sourceDSD) {
-		var items []Drama
-		var more bool
-		var err error
-		if source == sourceYeguo {
-			items, more, err = d.fetchYeguoCatalogPage(ctx, page, "", query)
-		} else {
-			items, more, err = d.fetchDSDCatalogPage(ctx, page, "", query)
-		}
-		if err != nil {
-			return result, err
-		}
-		for _, drama := range items {
-			result.Items = append(result.Items, nativeNormalize(drama))
-		}
-		result.HasMore = more
-		return result, nil
-	}
 	if query != "" {
+		// 有在线搜索接口的站源统一走 nativeSearchSource：单源搜索与「全部源」
+		// 聚合搜索共用同一套实现，不会出现两处结果不一致的情况。
+		if nativeSourceSupportsSearch(source) {
+			return engine.nativeSearchSource(ctx, source, query, page)
+		}
+		// 没有搜索接口的站源（黄豆、黄果 AI / 视频 / 旧版）退回已缓存目录里筛选。
 		engine.mu.Lock()
 		items := append([]nativeDrama{}, engine.catalogs[source]...)
 		engine.mu.Unlock()
@@ -652,6 +593,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		result.LocalSearch = true
 		return result, nil
 	}
+	d := engine.downloader
 	unlock, lockErr := engine.lockSourceCatalog(ctx, source)
 	if lockErr != nil {
 		return nativeCatalogResult{}, lockErr

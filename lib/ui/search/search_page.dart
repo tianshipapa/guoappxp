@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../app_build.dart';
 import '../../core_bridge.dart';
 import '../../drama_feed.dart';
 import '../../local_store.dart';
@@ -42,6 +43,17 @@ class _SearchPageState extends State<SearchPage> {
   int _suggestion = 0;
   bool _ready = false;
 
+  /// 「全部源」：并发搜索所有已开启的站源。偏好存在本机，下次打开沿用。
+  bool _allSources = false;
+
+  // 全部源搜索的流式状态：核心那边每返回一个站源就更新一次快照。
+  SearchProgress? _cross;
+  String _crossError = '';
+  String _searchId = '';
+  Timer? _poll;
+  int _generation = 0;
+  int _pollFailures = 0;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -49,6 +61,7 @@ class _SearchPageState extends State<SearchPage> {
     _ready = true;
     _repository = AppScope.of(context).repository;
     _catalog = SourceCatalog(_repository, widget.source);
+    _allSources = allSourcesEnabled && widget.store.searchAllSources;
     if (widget.query.trim().isNotEmpty) _submit(widget.query);
   }
 
@@ -56,12 +69,20 @@ class _SearchPageState extends State<SearchPage> {
   void dispose() {
     _debounce?.cancel();
     _suggestion++;
+    _generation++;
+    _poll?.cancel();
+    final search = _searchId;
+    if (search.isNotEmpty) unawaited(_repository.searchCancel(search));
     unawaited(_repository.cancelSuggestions());
     _results?.dispose();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
   }
+
+  /// 红果鉴这类只带一个站源的构建里，「全部源」没有意义，直接不显示开关。
+  bool get _allSourceToggle =>
+      allSourcesEnabled && widget.store.sources.length > 1;
 
   void _submit(String text) {
     final query = text.trim();
@@ -71,6 +92,11 @@ class _SearchPageState extends State<SearchPage> {
     _debounce?.cancel();
     _suggestion++;
     unawaited(widget.store.rememberSearch(query).catchError((Object _) {}));
+    if (_allSources) {
+      _startCross(query);
+      return;
+    }
+    _resetCross();
     _results?.dispose();
     final results = _results = DramaFeed(
       load: (page, _) => _catalog.search(query, page: page),
@@ -80,6 +106,99 @@ class _SearchPageState extends State<SearchPage> {
       _submitted = query;
       _suggestions = const [];
     });
+  }
+
+  // ---- 全部源：启动 + 轮询增量结果 ----
+
+  void _startCross(String query) {
+    _results?.dispose();
+    _results = null;
+    final generation = ++_generation;
+    _stopPolling(cancelRemote: true);
+    final sources = [for (final site in widget.store.sources) site.id];
+    setState(() {
+      _submitted = query;
+      _suggestions = const [];
+      _crossError = '';
+      _pollFailures = 0;
+      _cross = SearchProgress(
+        query: query,
+        pending: sources,
+        total: sources.length,
+      );
+    });
+    if (sources.isEmpty) {
+      setState(() => _crossError = '没有已开启的站源，请先在「站源管理」里开启');
+      return;
+    }
+    unawaited(() async {
+      try {
+        final result = await _repository.searchStart(sources, query);
+        if (!mounted || generation != _generation) {
+          unawaited(_repository.searchCancel(result.id));
+          return;
+        }
+        _searchId = result.id;
+        setState(() => _cross = result);
+        _schedulePoll(generation);
+      } catch (error) {
+        if (!mounted || generation != _generation) return;
+        setState(() => _crossError = error.toString());
+      }
+    }());
+  }
+
+  /// 轮询间隔压到 250ms 左右：站源一回来就能刷到屏幕上，
+  /// 又不至于把原生核心的请求通道打满。
+  void _schedulePoll(int generation) {
+    _poll?.cancel();
+    _poll = Timer(const Duration(milliseconds: 250), () async {
+      if (!mounted || generation != _generation) return;
+      final search = _searchId;
+      if (search.isEmpty) return;
+      try {
+        final result = await _repository.searchPoll(search);
+        if (!mounted || generation != _generation) return;
+        _pollFailures = 0;
+        setState(() => _cross = result);
+        if (!result.finished) _schedulePoll(generation);
+      } catch (error) {
+        if (!mounted || generation != _generation) return;
+        if (++_pollFailures >= 4) {
+          setState(() => _crossError = error.toString());
+          return;
+        }
+        _schedulePoll(generation);
+      }
+    });
+  }
+
+  void _stopPolling({bool cancelRemote = false}) {
+    _poll?.cancel();
+    _poll = null;
+    final search = _searchId;
+    _searchId = '';
+    if (cancelRemote && search.isNotEmpty) {
+      unawaited(_repository.searchCancel(search));
+    }
+  }
+
+  void _resetCross() {
+    _generation++;
+    _stopPolling(cancelRemote: true);
+    _pollFailures = 0;
+    _crossError = '';
+    if (_cross != null) setState(() => _cross = null);
+  }
+
+  void _toggleAllSources(bool value) {
+    setState(() => _allSources = value);
+    unawaited(
+      widget.store.setSearchAllSources(value).catchError((Object _) {}),
+    );
+    // 已经搜过一次的话，立刻按新模式重搜，不用让用户再敲一遍回车。
+    final query = _submitted;
+    if (query.isNotEmpty) _submit(query);
   }
 
   void _changed(String text) {
@@ -107,15 +226,16 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final television = AppScope.of(context).television;
     final field = SearchField(
-      hint: '在 ${widget.source.name} 中搜索',
+      hint: _allSources ? '搜索全部站源' : '在 ${widget.source.name} 中搜索',
       controller: _controller,
       focusNode: _focus,
       autofocus: widget.query.isEmpty,
       onChanged: _changed,
       onSubmitted: _submit,
     );
-    if (AppScope.of(context).television) {
+    if (television) {
       return Scaffold(
         body: Column(
           children: [
@@ -128,6 +248,7 @@ class _SearchPageState extends State<SearchPage> {
               ),
               child: field,
             ),
+            if (_allSourceToggle) _allSourceBar(context, televisionInset),
             Expanded(child: _body(context)),
           ],
         ),
@@ -138,7 +259,55 @@ class _SearchPageState extends State<SearchPage> {
         titleSpacing: 0,
         title: Padding(padding: const EdgeInsets.only(right: 16), child: field),
       ),
-      body: SafeArea(top: false, bottom: false, child: _body(context)),
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: Column(
+          children: [
+            if (_allSourceToggle) _allSourceBar(context, null),
+            Expanded(child: _body(context)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 「全部源」开关 + 一句话说明。电视端用遥控左右键也能选中。
+  Widget _allSourceBar(BuildContext context, double? inset) {
+    final theme = Theme.of(context);
+    final caption = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(inset ?? 16, 8, inset ?? 16, 0),
+      child: Row(
+        children: [
+          FocusRing(
+            radius: 999,
+            child: FilterChip(
+              avatar: Icon(
+                _allSources
+                    ? Icons.travel_explore_rounded
+                    : Icons.public_rounded,
+                size: 16,
+              ),
+              label: const Text('全部源'),
+              selected: _allSources,
+              onSelected: _toggleAllSources,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _allSources ? '同时搜索所有已开启的站源，结果边搜边出' : '只搜索 ${widget.source.name}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: caption,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -162,6 +331,7 @@ class _SearchPageState extends State<SearchPage> {
         ],
       );
     }
+    if (_allSources) return _crossBody(context);
     final results = _results;
     if (results == null) return _recent(context);
     if (results.items.isEmpty) {
@@ -220,13 +390,193 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 全部源的流式结果：头部显示进度，下面就是已经搜到的条目，边到边加。
+  Widget _crossBody(BuildContext context) {
+    final television = AppScope.of(context).television;
+    final inset = television
+        ? televisionInset
+        : AppScope.formFactorOf(context) == FormFactor.phone
+        ? 16.0
+        : 24.0;
+    if (_crossError.isNotEmpty && (_cross?.items.isEmpty ?? true)) {
+      return StatusView(
+        title: '搜索失败',
+        message: _crossError,
+        icon: Icons.cloud_off_rounded,
+        action: '重试',
+        onAction: () => _submit(_submitted),
+      );
+    }
+    final progress = _cross;
+    if (progress == null || progress.items.isEmpty) {
+      if (progress != null && progress.finished) {
+        return StatusView(
+          title: '没有找到「$_submitted」',
+          message: progress.warning.isNotEmpty
+              ? progress.warning
+              : '换个关键词，或减少勾选的站源再试试',
+          icon: Icons.search_off_rounded,
+        );
+      }
+      // 首个结果还没回来：给转圈 + 实时进度，让用户知道在搜哪些站源。
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox.square(
+                dimension: 32,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              const SizedBox(height: 20),
+              Text('正在搜索全部源', style: Theme.of(context).textTheme.titleMedium),
+              if (progress != null && progress.total > 0) ...[
+                const SizedBox(height: 16),
+                _crossHeader(context, progress, _crossError),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) => CustomScrollView(
+        // 结果一直在变长，保持滚动位置别被重建顶回去。
+        key: const PageStorageKey<String>('search-cross'),
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(inset, 12, inset, 0),
+            sliver: SliverToBoxAdapter(
+              child: _crossHeader(context, progress, _crossError),
+            ),
+          ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(inset, 12, inset, 0),
+            sliver: DramaSliverGrid(
+              width: constraints.maxWidth - inset * 2,
+              items: progress.items,
+              autofocus: television,
+              onOpen: _open,
+              subtitleOf: (drama) {
+                final name = SourceSite.byId(drama.source).name;
+                return drama.peers.isEmpty
+                    ? name
+                    : '$name · 另 ${drama.peers.length} 源';
+              },
+            ),
+          ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              inset,
+              12,
+              inset,
+              television ? 27 : 16,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                progress.running ? '继续搜索中…' : '已经搜完全部站源',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _crossHeader(
+    BuildContext context,
+    SearchProgress progress,
+    String error,
+  ) {
+    final theme = Theme.of(context);
+    final caption = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final status = progress.running
+        ? '已搜索 ${progress.done}/${progress.total} 个站源 · 已找到 ${progress.items.length} 条'
+        : '已搜索 ${progress.total} 个站源 · 共 ${progress.items.length} 条';
+    final pending = [
+      for (final id in progress.pending.take(4)) SourceSite.byId(id).name,
+    ].join('、');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            SizedBox.square(
+              dimension: 14,
+              child: progress.running
+                  ? const CircularProgressIndicator(strokeWidth: 2)
+                  : Icon(
+                      Icons.travel_explore_rounded,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                status,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (progress.running) ...[
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress.total == 0
+                  ? null
+                  : (progress.done / progress.total).clamp(0.0, 1.0),
+              minHeight: 3,
+            ),
+          ),
+          if (progress.pending.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              '正在搜索 $pending${progress.pending.length > 4 ? ' 等' : ''}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: caption,
+            ),
+          ],
+        ],
+        if (progress.warning.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            progress.warning,
+            style: caption?.copyWith(color: theme.colorScheme.error),
+          ),
+        ],
+        if (error.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            '刷新结果时出错：$error',
+            style: caption?.copyWith(color: theme.colorScheme.error),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _recent(BuildContext context) => ListenableBuilder(
     listenable: widget.store,
     builder: (context, _) {
       final recent = widget.store.recentSearches;
+      final scope = _allSources ? '全部站源' : widget.source.name;
       if (recent.isEmpty) {
         return StatusView(
-          title: '在 ${widget.source.name} 中搜索',
+          title: '在 $scope 中搜索',
           message: '输入剧名或关键词',
           icon: Icons.search_rounded,
         );

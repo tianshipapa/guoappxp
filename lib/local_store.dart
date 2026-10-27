@@ -123,6 +123,7 @@ class LocalStore extends ChangeNotifier {
   }
 
   bool get canDownload => !locked && (profile.admin || profile.download);
+
   /// 自定义源属于「谁用谁配」的本机偏好，不参与用户级源权限判定：
   /// 所有用户都能添加、编辑、删除，并在自己的列表里看到它们。
   bool allowsSource(String source) =>
@@ -182,9 +183,7 @@ class LocalStore extends ChangeNotifier {
       ..addAll(_customSources.map((site) => site.id));
     SourceSite.customNames
       ..clear()
-      ..addEntries(
-        _customSources.map((site) => MapEntry(site.id, site.name)),
-      );
+      ..addEntries(_customSources.map((site) => MapEntry(site.id, site.name)));
   }
 
   /// 把原生核心返回的自定义源列表写入本地，并同步到 [SourceSite.customIds]，
@@ -449,6 +448,13 @@ class LocalStore extends ChangeNotifier {
       return const CatalogView();
     }
   }
+
+  /// 「全部源搜索」偏好：勾上后搜索页默认并发搜索所有可见站源。
+  bool get searchAllSources =>
+      !locked && (_bool(_key('searchAllSources')) ?? false);
+
+  Future<void> setSearchAllSources(bool value) =>
+      _setting(_key('searchAllSources'), value);
 
   List<String> get recentSearches {
     if (locked) return const [];

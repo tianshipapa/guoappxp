@@ -624,10 +624,30 @@ function hashFor(overrides) {
   return '#/home?' + query.toString();
 }
 
-// 「全部源」聚合搜索：勾选时一次并发打所有可见源（含自定义源），
-// 核心按标题/年份/集数归一去重后合并返回；不勾选时保持单源目录行为。
+// 「全部源」聚合搜索：勾选时并发打所有可见源（含自定义源），核心按标题/年份/集数
+// 归一去重后合并。搜索是分批回来的：先 searchStart 拿会话号，再每 200ms 轮询一次
+// 快照，哪个站源先回来就先画哪批，不必等最慢的那几个站源。
+var crossSearch = { token: 0, id: '', timer: null, painted: '' };
+
+function cancelCrossSearch() {
+  var previous = crossSearch;
+  crossSearch = { token: previous.token + 1, id: '', timer: null, painted: '' };
+  if (previous.timer) {
+    clearTimeout(previous.timer);
+  }
+  if (previous.id) {
+    api({ action: 'searchCancel', search: previous.id }).catch(function () {});
+  }
+}
+
 function renderCrossSearch() {
-  view.innerHTML = '<div class="loading">正在搜索全部源…</div>';
+  cancelCrossSearch();
+  var token = crossSearch.token;
+  view.innerHTML =
+    '<div class="cross-head"><span>全部源搜索「' + escapeHTML(state.query) + '」</span>' +
+    '<a href="' + escapeHTML(link(hashFor({ q: '' }))) + '">返回目录</a></div>' +
+    '<div class="cross-progress"><span>正在联系各站源…</span></div>' +
+    '<div class="grid"><div class="empty">正在搜索，结果会边搜边显示…</div></div>';
   return visibilityList().then(function (items) {
     var ids = items.filter(function (item) { return item.visible; }).map(function (item) {
       return item.id;
@@ -635,16 +655,63 @@ function renderCrossSearch() {
     if (!ids.length) {
       throw new Error('没有开启显示的站源，请先在「源显示」里开启');
     }
-    return api({ action: 'searchAcross', sources: ids, query: state.query, page: 1 });
-  }).then(function (result) {
-    renderCrossResults(result, ids);
+    return api({ action: 'searchStart', sources: ids, query: state.query, page: 1 });
+  }).then(function (first) {
+    if (token !== crossSearch.token) {
+      return;
+    }
+    crossSearch.id = first.search || '';
+    paintCrossResults(first);
+    if (!first.finished) {
+      pollCrossSearch(token);
+    }
   });
 }
 
-function renderCrossResults(result, requestedIds) {
+function pollCrossSearch(token) {
+  crossSearch.timer = setTimeout(function () {
+    if (token !== crossSearch.token) {
+      return;
+    }
+    var id = crossSearch.id;
+    if (!id) {
+      return;
+    }
+    api({ action: 'searchPoll', search: id })
+      .then(function (result) {
+        if (token !== crossSearch.token) {
+          return;
+        }
+        paintCrossResults(result);
+        if (!result.finished) {
+          pollCrossSearch(token);
+        }
+      })
+      .catch(function (error) {
+        if (token !== crossSearch.token) {
+          return;
+        }
+        // 会话过期或核心重启：给出明确提示，不无限重试把服务打满。
+        view.innerHTML = '<div class="empty">' +
+          escapeHTML(error.message || '搜索中断，请重新搜索') + '</div>';
+      });
+  }, 200);
+}
+
+function paintCrossResults(result) {
   var items = result.items || [];
-  var hasMore = !!result.hasMore;
-  state.hasMore = hasMore;
+  var total = Number(result.total) || 0;
+  var done = Number(result.done) || 0;
+  var running = !result.finished;
+  var warning = result.warning || '';
+  // 只在「条目数/进度/提示」真的变了才重绘：轮询很密，没必要每次都重建 DOM，
+  // 否则封面图会跟着重新解码、看起来在闪。
+  var key = items.length + '|' + done + '|' + total + '|' + (running ? 1 : 0) + '|' + warning;
+  if (crossSearch.painted === key) {
+    return;
+  }
+  crossSearch.painted = key;
+  state.hasMore = false;
   // 缓存同名剧的各源副本，供详情页「切换播放源」使用（含当前源自身）。
   items.forEach(function (drama) {
     if (!drama.id) {
@@ -672,22 +739,29 @@ function renderCrossResults(result, requestedIds) {
       '</a></div>'
     );
   }).join('');
-  var warning = result.warning
-    ? '<div class="cross-warning">部分站源未返回结果：' + escapeHTML(result.warning) + '</div>'
+  var percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  var progress =
+    '<div class="cross-progress"><span>' +
+    (running
+      ? '已搜索 ' + done + '/' + total + ' 个站源 · 已找到 ' + items.length + ' 条'
+      : '已搜索 ' + total + ' 个站源 · 共 ' + items.length + ' 条') +
+    '</span>' +
+    (running ? '<div class="bar"><span style="width:' + percent + '%"></span></div>' : '') +
+    '</div>';
+  var notice = warning
+    ? '<div class="cross-warning">部分站源未返回结果：' + escapeHTML(warning) + '</div>'
     : '';
-  var next = hasMore
-    ? '<a href="' + escapeHTML(link(hashFor({ page: state.page + 1 }))) + '">下一页</a>'
-    : '';
-  var searched = ((result.sources) || []).join('、');
+  var empty = running
+    ? '<div class="empty">正在搜索，结果会边搜边显示…</div>'
+    : '<div class="empty">没有找到内容，换个关键词试试。</div>';
   view.innerHTML =
     '<div class="cross-head">' +
-    '<span>全部源搜索「' + escapeHTML(state.query) + '」命中 ' + items.length + ' 条' +
-    (searched ? '（' + escapeHTML(searched) + '）' : '') + '</span>' +
+    '<span>全部源搜索「' + escapeHTML(state.query) + '」</span>' +
     '<a href="' + escapeHTML(link(hashFor({ q: '' }))) + '">返回目录</a>' +
     '</div>' +
-    warning +
-    '<div class="grid">' + (cards || '<div class="empty">没有找到内容，换个关键词试试。</div>') + '</div>' +
-    (next ? '<div class="pager">' + next + '</div>' : '');
+    progress +
+    notice +
+    '<div class="grid">' + (cards || empty) + '</div>';
 }
 
 function renderCatalog() {
@@ -3123,6 +3197,8 @@ function renderLiveView() {
 
 function render() {
   cancelAutoNext();
+  // 换路由就放弃还在跑的全部源搜索，别让它的轮询继续往页面上画结果。
+  cancelCrossSearch();
   // 路由离开直播页时停掉直播播放器，避免后台继续拉流。
   if (location.hash.indexOf('#/live') !== 0 && (liveHlsInstance || liveFlvInstance || liveArtplayer)) {
     liveStopPlayer();
