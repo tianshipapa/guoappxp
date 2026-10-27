@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -284,6 +285,16 @@ func newNativeEngine(directory string) (*nativeEngine, error) {
 	engine.loadResourceSettings()
 	d.loadRankingCache()
 	engine.loadCatalogCache()
+	// 自定义源注册表必须在任何站源判定之前就绪：isDuanjuProviderSource /
+	// isHuangguoProviderSource 都会回调 customMaccmsSpecFor 查询自定义源，
+	// registry 为 nil 时那次查询会直接空指针 panic（表现为「本地核心处理失败」）。
+	engine.customRegistry = newCustomMaccmsRegistry(directory)
+	engine.customRegistry.load()
+	// 已存在的自定义源也要登记进浏览器指纹传输白名单，保证重启后
+	// 其目录/页面请求与运行时新增路径一致。
+	for _, record := range engine.customMaccmsSources() {
+		engine.registerCustomBrowserHost(record.Base)
+	}
 	engine.covers = newNativeCoverCache(directory, d)
 	engine.downloads = newNativeDownloads(engine)
 	return engine, nil
@@ -291,7 +302,11 @@ func newNativeEngine(directory string) (*nativeEngine, error) {
 
 func NativeRequest(raw string) (result string) {
 	defer func() {
-		if recover() != nil {
+		if recovered := recover(); recovered != nil {
+			// 这里必须留下堆栈：对外只回「处理失败」，没有堆栈就无从定位。
+			// c-shared 下 stderr 已被重定向到 native_stderr.log（见 bridge），
+			// 本地服务版则直接打在终端。
+			fmt.Fprintf(os.Stderr, "native core panic: %v\n%s\n", recovered, debug.Stack())
 			result = `{"ok":false,"error":"本地核心处理失败，请重试"}`
 		}
 	}()

@@ -1088,7 +1088,7 @@ func (engine *nativeEngine) isCustomMaccmsSourceKnown(source string) bool {
 // resolveCustomMaccmsSource 供站源注册表回退，返回指定自定义源的规格。
 func customMaccmsSpecFor(id string) (duanjuSourceSpec, bool) {
 	engine := nativeEngineSnapshot()
-	if engine == nil {
+	if engine == nil || engine.customRegistry == nil {
 		return duanjuSourceSpec{}, false
 	}
 	record, found := engine.customRegistry.get(id)
