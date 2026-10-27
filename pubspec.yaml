@@ -27,6 +27,9 @@ dependencies:
   package_info_plus: ^10.2.1
   dynamic_color: ^2.1.0
   url_launcher: ^6.3.3
+  # 直播播放时保持屏幕常亮。该插件本来就在 media_kit_video 的依赖树里，
+  # 这里显式声明只是为了能直接引用，不会引入新的原生插件。
+  wakelock_plus: ^1.8.0
 
 dev_dependencies:
   flutter_test:

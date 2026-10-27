@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../core_bridge.dart';
 import '../playback_session.dart' show videoDisplaySize;
@@ -194,6 +195,9 @@ class LivePlaybackController extends ChangeNotifier {
       _loading = false;
       _error = null;
       _paused = false;
+      // 直播没有进度条提醒用户，屏幕自动熄灭会被当成「播放失败」，
+      // 起播成功后保持常亮，退出播放页时还原。
+      unawaited(_keepAwake(true));
       _armStallWatch();
       notifyListeners();
     } catch (error) {
@@ -240,6 +244,17 @@ class LivePlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 保持屏幕常亮。部分平台（无原生实现的桌面环境）会抛异常，直接吞掉。
+  Future<void> _keepAwake(bool enabled) async {
+    try {
+      if (enabled) {
+        await WakelockPlus.enable();
+      } else {
+        await WakelockPlus.disable();
+      }
+    } catch (_) {}
+  }
+
   void _onError(String message) {
     if (_disposed) return;
     _loading = false;
@@ -270,6 +285,7 @@ class LivePlaybackController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    unawaited(_keepAwake(false));
     _reconnect?.cancel();
     _stall?.cancel();
     for (final subscription in _subscriptions) {

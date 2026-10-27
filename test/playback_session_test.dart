@@ -35,6 +35,7 @@ class _PlaybackRepository extends FakeRepository {
     Drama drama,
     Episode episode, {
     int quality = 0,
+    bool adBlock = true,
   }) async {
     resolved.add((episode: episode.number, quality: quality));
     if (resolveFailure.isNotEmpty) throw AppFailure(resolveFailure);
@@ -53,6 +54,7 @@ class _PlaybackRepository extends FakeRepository {
     Episode episode, {
     int quality = 0,
     bool online = false,
+    bool adBlock = true,
   }) async {
     preloaded.add(episode.number);
     return _plan();
