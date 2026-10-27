@@ -53,7 +53,7 @@ Flutter 多端独立短剧 / 影视应用
 
 工作流只能手动触发，推送和 PR 不再自动运行检查。
 
-发布流程：提升 `pubspec.yaml` 的 `version`，在 `CHANGELOG.md` 写好同名版本一节（标题如 `## 0.2.72+79`，会写入 Release 说明），推送到 `main`，再在 Actions 中手动运行 **Build app packages**（只能选 `main`）。工作流先检查版本：tag `app-v{version}`（`+` 替换为 `-`）或同名 Release 已存在时，直接失败，不进入构建。然后同时构建三个平台的两版（默认与 `--all-sources`），再加上本地服务版：
+发布流程：提升 `pubspec.yaml` 的 `version`，在 `CHANGELOG.md` 写好同名版本一节（标题如 `## 0.2.72+79`，会写入 Release 说明），推送到 `master`（`main` 也接受），再在 Actions 中手动运行 **Build app packages**。工作流先检查版本：tag `app-v{version}`（`+` 替换为 `-`）或同名 Release 已存在时，直接失败，不进入构建。然后同时构建三个平台的两版（默认与 `--all-sources`），再加上本地服务版：
 
 | 产物 | 内容 |
 | --- | --- |

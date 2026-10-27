@@ -60,8 +60,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "只能从 main 分支手动发布，当前为 $GITHUB_REF。" >&2
+          # 仓库默认分支是 master；早期文档写的是 main，两个都放行，避免手动运行时
+          # 被分支名校验直接拦下（Actions 只能选仓库里真实存在的分支）。
+          if [ "$GITHUB_REF" != "refs/heads/main" ] && [ "$GITHUB_REF" != "refs/heads/master" ]; then
+            echo "只能从 main / master 分支手动发布，当前为 $GITHUB_REF。" >&2
             exit 1
           fi
           version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)
