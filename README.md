@@ -4,7 +4,15 @@
 
 Flutter 多端独立短剧 / 影视应用
 
+## 最近更新（1.1.2+104）
 
+手机端适配与稳定性修复，Android / Windows / iOS / 本地服务版同步生效。完整历史见 [CHANGELOG.md](CHANGELOG.md)。
+
+- **修复爱看机器人海报一张都不显示**：它的封面全部指向豆瓣图床（`imgN.doubanio.com`），被两层反爬挡住——一是 Referer 防盗链，缺 Referer 的请求一律 HTTP 403 或跳到统一默认图；二是 TLS 指纹风控，Referer 正确时标准 Go 传输拿到的仍是一段反爬脚本。现在对该域名统一补豆瓣 Referer，遇到返回的不是图片时自动换浏览器指纹传输重试一次（仅 https）。实测同一页 24 张海报从 0/24 变 24/24。
+- **修复部分网页站点播报 `tls: failed to verify certificate: x509`**（Android 端最多见）：以 FFI 嵌入时 Go 的 `crypto/tls` 不加载系统信任库，`SystemCertPool()` 返回空池，站源换成小众公共根证书后 m3u8 / 海报握手就失败。核心传输改用「系统信任库 + 随包 CA 全集」作信任锚，其余平台只是多追加一份、行为不变。
+- **站源面板「管理站源」移到标题行右侧**，与「全部站源」同一水平线：原来排在列表最底部，手机上正好压在屏幕底部的手势条 / 虚拟按键区，难点也容易误触（电视端保持原位）。
+- **直播全屏控制条按屏幕安全区留白**，上一台 / 暂停 / 下一台不再贴着底部指示条与手势区域，横屏时也避开刘海所在的左右安全区。
+- **全屏横屏播放器的「播放设置」不再是占位提示**，直接显示与竖屏一致的倍速、清晰度、去广告、弹幕设置，改动即时生效。
 
 ## 使用
 
@@ -54,7 +62,7 @@ Flutter 多端独立短剧 / 影视应用
 
 工作流只能手动触发，推送和 PR 不再自动运行检查。
 
-发布流程：在 `CHANGELOG.md` 写好同名版本一节（标题如 `## 1.1.1+103`，会写入 Release 说明），推送到 `master`（`main` 也接受），再在 Actions 中手动运行 **Build app packages**。工作流读取 `pubspec.yaml` 的 `version`，得到 tag `app-v{version}`（`+` 替换为 `-`）。同一版本可以重复发布：默认勾选 `republish`，会先删掉同名的旧 Release 与 tag、再按当前提交重建并覆盖同名资产；取消勾选则该版本已存在时直接报错停止，此时应提升 `pubspec.yaml` 的 `version`。然后同时构建三个平台的两版（默认与 `--all-sources`），再加上本地服务版：
+发布流程：在 `CHANGELOG.md` 写好同名版本一节（标题如 `## 1.1.2+104`，会写入 Release 说明），推送到 `master`（`main` 也接受），再在 Actions 中手动运行 **Build app packages**。工作流读取 `pubspec.yaml` 的 `version`，得到 tag `app-v{version}`（`+` 替换为 `-`）。同一版本可以重复发布：默认勾选 `republish`，会先删掉同名的旧 Release 与 tag、再按当前提交重建并覆盖同名资产；取消勾选则该版本已存在时直接报错停止，此时应提升 `pubspec.yaml` 的 `version`。然后同时构建三个平台的两版（默认与 `--all-sources`），再加上本地服务版：
 
 | 产物 | 内容 |
 | --- | --- |
@@ -111,6 +119,13 @@ Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_
 stderr 重定向由 bridge 的 `DuanjuInstallStderrLog` 完成：Windows 用 `SetStdHandle`（**不能**用 `_dup2`，`os.File.Fd()` 返回的是 HANDLE，传进去会触发 `__fastfail` 直接退出），其它平台不重定向，避免架构相关的编译风险。
 
 遇到「某个源点播就报处理失败」时，先看这里有没有 `native core panic: ...` 与随后的 Goroutine 调用链，再判断是哪个 provider 的哪一行。
+
+其它两个高频问题：
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| 某个站源的海报全部不显示 | 图床（如豆瓣 `imgN.doubanio.com`）按 Referer 防盗链，并按 TLS 指纹做风控。核心已内置对应 Referer，并在返回内容不是图片时自动换浏览器指纹传输重试；仍拿不到就是源站侧限流或已下架图 |
+| 播放报 `tls: failed to verify certificate: x509` | FFI 嵌入时 Go 的 `crypto/tls` 不加载系统信任库，核心现已改用「系统信任库 + 随包 `cacert.pem`」作信任锚。若某个源仍如此，说明它用了其它私有根，需要在核心的信任锚里追加 |
 
 ## 开发与构建
 
