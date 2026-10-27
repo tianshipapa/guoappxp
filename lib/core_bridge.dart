@@ -58,6 +58,43 @@ String _nativeRequest(String body) {
   }
 }
 
+typedef _NativeStderrLog = Int32 Function(Pointer<Utf8>);
+typedef _DartStderrLog = int Function(Pointer<Utf8>);
+
+/// 把原生核心（c-shared / c-archive）的标准错误重定向到 [logPath]。
+///
+/// 核心里的 panic 会被最外层 recover 兜成一句「本地核心处理失败，请重试」，
+/// 堆栈只写 stderr；Android 上没有 logcat 抓取、Windows 双击启动没有 console，
+/// 这些堆栈就彻底丢了。重定向到文件后即便只有一句错误提示，也能顺着堆栈定位。
+/// 该符号在旧版原生核心里不存在，查找失败时静默跳过（旧包退回原行为）。
+void installStderrLog(String logPath) {
+  try {
+    final DynamicLibrary library;
+    if (Platform.isAndroid) {
+      library = DynamicLibrary.open('libduanju_core.so');
+    } else if (Platform.isWindows) {
+      library = DynamicLibrary.open(
+        path.join(path.dirname(Platform.resolvedExecutable), 'duanju_core.dll'),
+      );
+    } else if (Platform.isIOS) {
+      library = DynamicLibrary.process();
+    } else {
+      return;
+    }
+    final install = library.lookupFunction<_NativeStderrLog, _DartStderrLog>(
+      'DuanjuInstallStderrLog',
+    );
+    final ptr = logPath.toNativeUtf8();
+    try {
+      install(ptr);
+    } finally {
+      malloc.free(ptr);
+    }
+  } catch (_) {
+    // 符号不存在（旧原生核心）或路径不可写：忽略，退回原行为。
+  }
+}
+
 class AppFailure implements Exception {
   AppFailure(this.message, {this.code = ''});
   final String message;
@@ -595,6 +632,10 @@ class NativeRepository extends AppRepository {
   @override
   Future<void> initialize() async {
     final directory = await getApplicationSupportDirectory();
+    // 尽早把原生核心的标准错误重定向到日志文件：核心内部 panic 只会对外回
+    // 「本地核心处理失败，请重试」，堆栈仅写 stderr，桌面端与 Android 都取不到。
+    // 重定向后堆栈落在 <logs>/native_stderr.log。符号不存在时静默跳过。
+    installStderrLog(path.join(directory.path, 'logs', 'native_stderr.log'));
     if (!background) {
       DiaryService.nativeLogPath = path.join(directory.path, 'logs', 'app.log');
     }

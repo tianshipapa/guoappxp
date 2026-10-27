@@ -271,7 +271,12 @@ func newNativeEngine(directory string) (*nativeEngine, error) {
 	transport.ResponseHeaderTimeout = 20 * time.Second
 	transport.Proxy = router.proxy
 	cdn := newCDNTransport(transport, newDNSResolver(transport))
-	d.client = &http.Client{Transport: newHuangguoBrowserTransport(cdn, d), Timeout: 45 * time.Second,
+	// 浏览器指纹传输必须留住引用：自定义源新增/读取时要把自己的 host 登记进
+	// 白名单（registerCustomBrowserHost），这里不赋值的话白名单永远是空的，
+	// 自定义源与 XBPQ 的页面请求会走普通传输，直接被源站拒掉。
+	browserTransport := newHuangguoBrowserTransport(cdn, d)
+	d.browserTransport = browserTransport
+	d.client = &http.Client{Transport: browserTransport, Timeout: 45 * time.Second,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return errors.New("站源重定向次数过多")
