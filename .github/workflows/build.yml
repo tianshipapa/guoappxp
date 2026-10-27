@@ -2,6 +2,11 @@ name: Build app packages
 
 on:
   workflow_dispatch:
+    inputs:
+      with_ios:
+        description: '构建 iOS 包（macOS runner 按 10 倍分钟计费，额度不够时取消勾选）'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -198,11 +203,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # 注意：macOS runner 的分钟数按 10 倍计费（Free 计划每月 2000 分钟，折合 macOS
+  # 只有约 200 分钟），整条流程里只有这一个 job 用苹果机器，所以它最容易被额度掐掉。
+  # 因此：
+  #   1. 用 with_ios 开关控制要不要跑（额度紧张时手动关掉）；
+  #   2. 两个版本放在同一个 job 里顺序构建——Flutter/Go 环境初始化、pub get、
+  #      pod install 只付一次，第二个版本还能吃到同 job 内的 Go 构建缓存；
+  #   3. continue-on-error：iOS 出包失败不再连带把 Android / Windows / 网页版
+  #      的发布也一起拦下来。
   ios:
     needs: prepare
+    if: ${{ inputs.with_ios }}
+    continue-on-error: true
     runs-on: macos-latest
-    timeout-minutes: 60
-    strategy: *editions
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - *setup-python
@@ -223,11 +237,27 @@ jobs:
           go version
           flutter --version
           flutter precache --ios
-      - name: Build unsigned iOS packages
-        run: python scripts/build_ios.py ${{ matrix.arguments }}
+      # pub get 必须在缓存之前跑：依赖 Flutter 插件清单算 cache key。
+      - run: flutter pub get --enforce-lockfile
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ios/Podfile', '.flutter-plugins-dependencies') }}
+          restore-keys: |
+            pods-${{ runner.os }}-${{ runner.arch }}-
+      - name: Build unsigned iOS packages (红果鉴)
+        run: python scripts/build_ios.py
+      - name: Build unsigned iOS packages (真果鉴)
+        run: python scripts/build_ios.py --all-sources
+      - name: 提示 iOS 未出包
+        if: failure() || cancelled()
+        run: |
+          echo "::warning::iOS 本次未参与构建/未完成出包，Android、Windows、网页版仍会照常发布。"
+          echo "::warning::若这里是「账单额度不足」，请到 Settings → Billing 查看 Actions 用量或调高 spending limit。"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.edition }}-ios-unsigned
+          name: ios-unsigned
           path: dist/ios/*
           if-no-files-found: error
           retention-days: 14
@@ -252,8 +282,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # macOS 分钟最容易被账单额度掐掉，iOS job 也可能直接没有出包（见 with_ios）。
+  # 这里显式列出各 job 的 result 而不是单纯依赖 needs：iOS 跳过/失败只影响它自己，
+  # Android、Windows、网页版照常发布；只有这几个失败才真正拦住发布。
   release:
     needs: [checks, prepare, android, windows, ios, web]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare.result == 'success' &&
+          needs.checks.result == 'success' &&
+          needs.android.result == 'success' &&
+          needs.windows.result == 'success' &&
+          needs.web.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -310,6 +350,11 @@ jobs:
           if [ -n "$changes" ]; then
             { printf '更新内容：\n\n%s\n\n' "$changes"; cat notes.md; } > notes.tmp
             mv notes.tmp notes.md
+          fi
+          ipa_count=$(find release -maxdepth 1 -name '*.ipa' | wc -l)
+          if [ "$ipa_count" -eq 0 ]; then
+            echo "::warning::本次发布未包含 iOS 包（未勾选 with_ios 或 iOS job 未成功）。"
+            printf '\n注意：本次发布未包含 iOS 包，原因见 Actions 运行详情里的 ios job。\n' >> notes.md
           fi
           gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "红果鉴 / 真果鉴 ${VERSION}" --notes-file notes.md
       - name: 推送到 Telegram 频道

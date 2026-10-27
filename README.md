@@ -60,12 +60,30 @@ Flutter 多端独立短剧 / 影视应用
 | --- | --- |
 | `*-android` | 三种架构 APK；配好发布证书时用它签名并通过指纹校验，未配置时退回 debug 签名（仅测试用，不能覆盖已安装的正式签名版本） |
 | `*-windows` | Windows x64 ZIP |
-| `*-ios-unsigned` | arm64 iPhone 未签名 IPA，下载后自行签名安装 |
+| `ios-unsigned` | 两个版本的 arm64 iPhone 未签名 IPA（`hongguojian-…` / `zhenguojian-…`），下载后自行签名安装 |
 | `web` | `zhenguoweb.zip`：本地服务版合集，内含 `hongguojian.zip` / `zhenguojian.zip` 与 `SHA256SUMS.txt`，两个 zip 都带 Windows 版 `ffmpeg.exe` |
 
-checks（格式、分析、测试不阻塞）、Android、Windows、iOS、web 全部成功后才创建 tag 和 Release；任一平台失败就不发布。已有 Release 不会被覆盖。手动发布流程为开发快照，尚未完成首次运行验证。
+触发时可以勾选/取消 `with_ios`，默认勾选。
+
+Android、Windows、web 全部成功后才创建 tag 和 Release；iOS 不阻塞发布（见下文）。已有 Release 不会被覆盖。手动发布流程为开发快照，尚未完成首次运行验证。
 
 Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`，以及仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限）。Secrets 缺失时工作流输出 warning 并改用 debug 签名出包、跳过指纹校验；证书指纹只在发布签名模式下校验。CI 通过环境变量把签名传给 Gradle；本机构建使用 `android/key.properties`。`key.properties` 和证书文件不入库。
+
+#### iOS 经常「不参与构建」的原因
+
+整条发布流里只有 ios 这一个 job 用 GitHub 的 macOS runner，而 **macOS 分钟按 10 倍计费**：Free 计划每月 2000 分钟折合 macOS 只有约 200 分钟，一次完整 iOS 构建（Flutter 环境 + Go cgo 交叉编译 + `flutter build ios`）往往就要 20～30 分钟墙钟、200～300 分钟账单。额度用完后：
+
+- Free 账号默认 spending limit 为 0，**不含信用卡时 job 直接不会启动**（Actions 里显示为跳过/「This job was not started because recent account payments have failed or your spending limit needs to be increased」），而不是报构建错误；
+- 这也解释了为什么「老是」发生——每月基本只够跑一次。
+
+排查与处理：
+
+1. 打开 `Settings → Billing and plans → Plans and usage`，看 Actions 用量里 macOS 那一行的剩余；
+2. 运行详情页顶部的黄色横幅会写明是账单问题（job 日志本身不会写）；
+3. 额度不够时：追加信用卡并提高 spending limit，或改用自托管 macOS runner（不计费）；
+4. 只想先出 Android / Windows / 网页版：手动运行时**取消勾选 `with_ios`**，Release 会照常发布，只缺 IPA。
+
+为降低开销，iOS 的两个版本合在同一个 macOS job 里顺序构建（环境初始化、`pub get`、`pod install` 只付一次，Pods 有缓存），并且 iOS job 失败或被跳过都**不会**拦住其它平台的发布——Release 说明里会写明本次未包含 iOS 包。
 
 ## 日志与排障
 
