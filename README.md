@@ -65,7 +65,19 @@ Flutter 多端独立短剧 / 影视应用
 
 触发时可以勾选/取消 `with_ios`，默认勾选。
 
-Android、Windows、web 全部成功后才创建 tag 和 Release；iOS 不阻塞发布（见下文）。已有 Release 不会被覆盖。手动发布流程为开发快照，尚未完成首次运行验证。
+Android、Windows、web 全部成功后才创建 tag 和 Release；iOS 不阻塞发布（见下文）。已有 Release 不会被覆盖。
+
+#### 发布时报 `HTTP 403: Resource not accessible by integration`
+
+创建 Release 那一步用的令牌没有写权限。release job 里已经声明了 `permissions: contents: write` 却仍然 403，说明**仓库/组织设置把默认令牌压成了只读**（job 里的声明并不总能盖过这个仓库级默认值）。
+
+处理按顺序试：
+
+1. **Settings → Actions → General → Workflow permissions** 选 **Read and write permissions**（仓库级；组织托管的仓库还要看组织同名设置，组织级是硬上限）；
+2. 或者在本仓库 **Settings → Secrets and variables → Actions** 新建 Secret `RELEASE_TOKEN`，放一个带 `repo` 权限的个人访问令牌（工作流会优先用它：`secrets.RELEASE_TOKEN || github.token`）；
+3. **改完后必须重新手动触发一次新的运行**（Actions → Run workflow），点 Re-run 重跑不生效——重跑会沿用原运行当时的令牌权限。
+
+跑起来后可以看 job 日志开头 Actions 打印的 `GITHUB_TOKEN Permissions:` 块确认这次实际拿到的权限；工作流里也加了一步专门打印「该仓库 Release 接口要求的权限」。手动发布流程为开发快照，尚未完成首次运行验证。
 
 Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`，以及仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限）。Secrets 缺失时工作流输出 warning 并改用 debug 签名出包、跳过指纹校验；证书指纹只在发布签名模式下校验。CI 通过环境变量把签名传给 Gradle；本机构建使用 `android/key.properties`。`key.properties` 和证书文件不入库。
 

@@ -300,13 +300,29 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: 检查 Release 令牌是否有写权限
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          headers=$(curl -sS -D - -o /dev/null \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO" || true)
+          accepted=$(printf '%s\n' "$headers" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-accepted-oauth-scopes"{print $2}')
+          echo "该仓库 Release 接口要求的权限：$accepted"
+          if printf '%s' "$accepted" | grep -qi "repo\|contents"; then :; else
+            echo "::warning::拿不到 API 的权限头，无法预处理判断，等下一步实际创建时再说。"
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
       - name: 发布 Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          # 仓库默认令牌可能被仓库/组织设置压成只读；配了 RELEASE_TOKEN（有 repo 权限的
+          # 个人访问令牌）时优先用它作为兜底。
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
           ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
@@ -356,7 +372,19 @@ jobs:
             echo "::warning::本次发布未包含 iOS 包（未勾选 with_ios 或 iOS job 未成功）。"
             printf '\n注意：本次发布未包含 iOS 包，原因见 Actions 运行详情里的 ios job。\n' >> notes.md
           fi
-          gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "红果鉴 / 真果鉴 ${VERSION}" --notes-file notes.md
+          # 这里常见的失败是 HTTP 403 Resource not accessible by integration：
+          # 仓库/组织设置把 GITHUB_TOKEN 的默认权限压成了只读（job 里写的
+          # contents: write 未必能覆盖仓库级默认值）。给一句人能看懂的处理办法，
+          # 免得每次都来对 POST /releases 干瞪眼。
+          if ! gh release create "$TAG" release/* --target "$GITHUB_SHA" \
+                --title "红果鉴 / 真果鉴 ${VERSION}" --notes-file notes.md; then
+            echo "::error::创建 Release 失败。若提示 Resource not accessible by integration，"
+            echo "::error::请把 Settings → Actions → General → Workflow permissions 改成"
+            echo "::error::「Read and write permissions」，或在仓库 Secrets 配 RELEASE_TOKEN"
+            echo "::error::（带 repo 权限的个人访问令牌）；改完后必须重新触发一次新的运行，"
+            echo "::error::点 Re-run 重跑不生效——重跑会沿用原运行当时的令牌权限。"
+            exit 1
+          fi
       - name: 推送到 Telegram 频道
         continue-on-error: true
         env:
