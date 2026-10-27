@@ -85,7 +85,20 @@ func providerChapterID(source, sourceID, chapterKey string) string {
 }
 
 func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
-	source, sourceID, ok = strings.Cut(strings.TrimSpace(id), ":")
+	trimmed := strings.TrimSpace(id)
+	// 自定义源 ID 形如 custom:<hash>:<sourceID>，源名本身含冒号，需按第二个冒号拆分；
+	// 否则会被切成 source="custom"，站点一切到详情/取流就被判成「当前版本不包含此站源」。
+	if strings.HasPrefix(trimmed, customSourcePrefix) {
+		if rest, tail, found := strings.Cut(strings.TrimPrefix(trimmed, customSourcePrefix), ":"); found && strings.TrimSpace(rest) != "" && strings.TrimSpace(tail) != "" {
+			source = customSourcePrefix + rest
+			if !isCustomMaccmsSource(source) {
+				return "", "", false
+			}
+			return source, strings.TrimSpace(tail), true
+		}
+		return "", "", false
+	}
+	source, sourceID, ok = strings.Cut(trimmed, ":")
 	source = canonicalProviderSource(source)
 	if !ok || strings.TrimSpace(sourceID) == "" || !isHuangguoProviderSource(source) {
 		return "", "", false
