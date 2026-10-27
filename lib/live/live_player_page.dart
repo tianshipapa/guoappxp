@@ -44,11 +44,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     _playback = LivePlaybackController(repository: widget.repository)
       ..addListener(_changed);
     unawaited(
-      _playback.load(
-        widget.source,
-        widget.channels,
-        index: widget.index,
-      ),
+      _playback.load(widget.source, widget.channels, index: widget.index),
     );
     _scheduleHide();
   }

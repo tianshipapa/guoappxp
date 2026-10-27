@@ -42,7 +42,8 @@ class PlaybackPreloader extends ChangeNotifier {
     int quality,
     bool online,
     bool adBlock,
-  ) => '${drama.id}\u0000${episode.number}\u0000$quality\u0000$online'
+  ) =>
+      '${drama.id}\u0000${episode.number}\u0000$quality\u0000$online'
       '\u0000$adBlock';
 
   void prepare(

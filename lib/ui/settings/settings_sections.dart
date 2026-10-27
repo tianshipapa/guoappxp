@@ -244,9 +244,7 @@ class SettingsSection extends StatelessWidget {
           SettingsTile(
             icon: Icons.dns_outlined,
             title: '站源管理',
-            subtitle: allSourcesEnabled
-                ? '开关内置源、管理自定义源'
-                : '开关站源、管理自定义源',
+            subtitle: allSourcesEnabled ? '开关内置源、管理自定义源' : '开关站源、管理自定义源',
             onTap: () => open('站源管理', (_) => SourcesView(store: store)),
           ),
         ],

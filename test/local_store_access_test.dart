@@ -78,10 +78,10 @@ void main() {
       expect(store.canDownload, isFalse);
       await store.toggleFavorite(huangdou);
       expect(store.favorites, isEmpty);
-      await expectLater(
-        store.setSourceEnabled('hongguo', false),
-        throwsStateError,
-      );
+      // 站源开关不再要求管理员：普通用户也能自己决定看哪些源。
+      await store.setSourceEnabled('hongguo', false);
+      expect(store.sourceEnabled('hongguo'), isFalse);
+      await store.setSourceEnabled('hongguo', true);
 
       await expectLater(
         store.switchProfile('default', pin: 'wrong'),
@@ -134,12 +134,14 @@ void main() {
   group('sources', () {
     test('restricted sources start switched off', () async {
       final store = await openStore();
-      expect(
-        store.sources.map((site) => site.id),
-        allSourcesEnabled
-            ? ['hongguo', 'hanxiaoquan', 'guipian', 'sorani']
-            : ['hongguo'],
-      );
+      // 默认只显示不受限的站源；列表随版本增减（如新增 A123、爱看机器人），
+      // 因此按 SourceSite 自己算，不要在测试里写死。
+      final expected = [
+        for (final site in SourceSite.values)
+          if (!SourceSite.isRestricted(site.id)) site.id,
+      ];
+      expect(expected, isNotEmpty);
+      expect(store.sources.map((site) => site.id), expected);
       for (final site in SourceSite.restrictedValues) {
         expect(store.sourceEnabled(site.id), isFalse, reason: site.id);
         expect(store.allowsSource(site.id), isFalse, reason: site.id);
@@ -161,7 +163,14 @@ void main() {
       final restarted = restartStore(store);
       expect(restarted.allowsSource('hongguo'), isFalse);
       expect(restarted.allowsSource('dsd'), allSourcesEnabled);
-      expect(restarted.source, allSourcesEnabled ? 'hanxiaoquan' : '');
+      if (allSourcesEnabled) {
+        expect(restarted.sources, isNotEmpty);
+        expect(restarted.source, restarted.sources.first.id);
+        expect(restarted.source, isNot('hongguo'));
+      } else {
+        expect(restarted.sources, isEmpty);
+        expect(restarted.source, '');
+      }
     });
 
     for (final source in ['huangdou', 'dsd']) {

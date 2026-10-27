@@ -779,10 +779,7 @@ class _CustomSourceImportDialogState extends State<_CustomSourceImportDialog> {
         if (!_fileMode)
           FocusRing(
             radius: 20,
-            child: FilledButton(
-              onPressed: _submitUrl,
-              child: const Text('导入'),
-            ),
+            child: FilledButton(onPressed: _submitUrl, child: const Text('导入')),
           ),
       ],
     );

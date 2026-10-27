@@ -200,15 +200,21 @@ class LocalStore extends ChangeNotifier {
       final serialized = jsonEncode(
         sorted.map((site) => site.toJson()).toList(),
       );
-      if (serialized == _string('customSources')) {
-        _customSources = sorted;
-        _syncCustomIds();
-        return;
+      Error? failure;
+      if (serialized != _string('customSources')) {
+        try {
+          await _commit({'customSources': serialized});
+        } catch (error) {
+          // 写盘失败也要让内存里的列表生效：源栏、搜索、追剧都靠 _syncCustomIds
+          // 拿到自定义源 id，一旦这里中断，新导入的源会彻底看不见。
+          // 错误仍然抛给上层，好让界面提示用户。
+          failure = error is Error ? error : StateError('$error');
+        }
       }
-      await _commit({'customSources': serialized});
       _customSources = sorted;
       _syncCustomIds();
       _notify();
+      if (failure != null) throw failure;
     });
   }
 

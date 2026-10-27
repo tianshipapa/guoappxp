@@ -88,10 +88,7 @@ class _LivePageState extends State<LivePage> {
       _channels = const [];
     });
     try {
-      final platforms = await widget.repository.platforms(
-        source,
-        force: force,
-      );
+      final platforms = await widget.repository.platforms(source, force: force);
       if (!mounted || token != _generation) return;
       setState(() {
         _platforms = platforms;
@@ -201,7 +198,9 @@ class _LivePageState extends State<LivePage> {
       actions: [
         IconButton(
           tooltip: '刷新',
-          onPressed: _loading ? null : () => unawaited(_loadPlatforms(force: true)),
+          onPressed: _loading
+              ? null
+              : () => unawaited(_loadPlatforms(force: true)),
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],

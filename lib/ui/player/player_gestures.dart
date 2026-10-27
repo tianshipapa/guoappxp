@@ -136,11 +136,7 @@ class PlayerGestures extends ChangeNotifier {
     if (_axis == _Axis.horizontal && dx.abs() >= _horizontalThreshold) {
       // 滑动途中只预览，抬手才真正跳转，免得一次滑动里反复 seek 拖死解码器。
       final forward = dx > 0;
-      _show(
-        SwipeAction.seek,
-        0,
-        label: '${forward ? '快进' : '后退'} $seekStep 秒',
-      );
+      _show(SwipeAction.seek, 0, label: '${forward ? '快进' : '后退'} $seekStep 秒');
       return;
     }
 
@@ -176,7 +172,9 @@ class PlayerGestures extends ChangeNotifier {
       _dismissLater();
     }
 
-    if (_moved) _ignoreTapUntil = DateTime.now().add(const Duration(milliseconds: 600));
+    if (_moved) {
+      _ignoreTapUntil = DateTime.now().add(const Duration(milliseconds: 600));
+    }
     _reset();
   }
 
@@ -190,8 +188,11 @@ class PlayerGestures extends ChangeNotifier {
     final duration = session.player.state.duration;
     if (!session.ready || duration <= Duration.zero) return;
     final target = Duration(
-      milliseconds: (session.player.state.position.inMilliseconds + seconds * 1000)
-          .clamp(0, duration.inMilliseconds),
+      milliseconds:
+          (session.player.state.position.inMilliseconds + seconds * 1000).clamp(
+            0,
+            duration.inMilliseconds,
+          ),
     );
     unawaited(session.seekTo(target));
   }

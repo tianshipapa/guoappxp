@@ -106,7 +106,10 @@ void main() {
     });
     await store.setSourceEnabled('hongguo', false);
     await pumpEventQueue();
-    expect(explore.source?.id, allSourcesEnabled ? 'hanxiaoquan' : null);
+    // 关掉当前源后落到下一个可用源；具体落到哪个随站源清单变化
+    // （新增 A123、爱看机器人后就不再是韩小圈），因此按 store 自己的顺序取下一个。
+    final fallback = store.sources.isEmpty ? null : store.sources.first.id;
+    expect(explore.source?.id, allSourcesEnabled ? fallback : null);
     expect(explore.feed == null, !allSourcesEnabled);
 
     await store.setSourceEnabled('hongguo', true);

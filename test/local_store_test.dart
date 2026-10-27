@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:duanju_app/local_profiles.dart';
 import 'package:duanju_app/local_snapshot.dart';
 import 'package:duanju_app/local_store.dart';
+import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_preferences.dart';
 import 'package:duanju_app/theme_color.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +67,7 @@ void main() {
         'exportPosters',
         'sourceSwitches',
         'forceLogin',
+        'customSources',
       });
       expect(LocalSnapshot.libraryKeys, {
         'history',
@@ -75,11 +77,46 @@ void main() {
         'mediaHistory',
         'source',
         'hideVip',
+        'searchAllSources',
         'playback',
         'downloadPreferences',
         'catalogView',
         'recentSearches',
       });
+    });
+
+    test('custom sources round-trip without locking the store', () async {
+      final store = await openStore();
+      final sources = [
+        const CustomSourceSite(
+          id: 'custom:abc:mysite',
+          name: '我的站点',
+          base: 'https://example.com/api.php/provide/vod',
+          kind: 'json',
+        ),
+      ];
+      await store.syncCustomSources(sources);
+
+      final values = _snapshotValues(store);
+      expect(values.keys.where((key) => !LocalSnapshot.owns(key)), isEmpty);
+      expect(values['customSources'], isA<String>());
+
+      final restarted = restartStore(store);
+      expect(restarted.customSources.map((site) => site.id), [
+        'custom:abc:mysite',
+      ]);
+      expect(restarted.customSources.single.name, '我的站点');
+    });
+
+    test('the cross-source search switch survives a restart', () async {
+      final store = await openStore();
+      expect(store.searchAllSources, isFalse);
+      await store.setSearchAllSources(true);
+
+      final values = _snapshotValues(store);
+      expect(values.keys.where((key) => !LocalSnapshot.owns(key)), isEmpty);
+      expect(values['searchAllSources'], isTrue);
+      expect(restartStore(store).searchAllSources, isTrue);
     });
 
     test('settings added by the rebuild stay outside the snapshot', () async {

@@ -149,7 +149,8 @@ class ExplorePageState extends State<ExplorePage> {
                     BarButton(
                       icon: Icons.live_tv_rounded,
                       tooltip: '直播',
-                      onPressed: () => unawaited(openLive(context, store: widget.store)),
+                      onPressed: () =>
+                          unawaited(openLive(context, store: widget.store)),
                     ),
                     if (desktop)
                       BarButton(
