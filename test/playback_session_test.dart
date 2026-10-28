@@ -14,6 +14,7 @@ class _PlaybackRepository extends FakeRepository {
   final resolved = <({int episode, int quality})>[];
   final released = <String>[];
   final preloaded = <int>[];
+  final routes = <int>[];
   var fallbacks = 0;
   var resolveFailure = '';
   var _sessions = 0;
@@ -46,6 +47,12 @@ class _PlaybackRepository extends FakeRepository {
   Future<PlaybackPlan> fallback(PlaybackPlan current) async {
     fallbacks++;
     return _plan(route: current.routeIndex + 1);
+  }
+
+  @override
+  Future<PlaybackPlan> selectRoute(PlaybackPlan current, int route) async {
+    routes.add(route);
+    return _plan(route: route);
   }
 
   @override
@@ -196,6 +203,24 @@ void main() {
     expect(repository.resolved.last, (episode: 1, quality: 720));
     expect(player.opened.last.start, _seconds(15));
     expect(session.qualityLabel, '720P');
+  });
+
+  test('manual route switching reuses the session and keeps position', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+
+    player.progress(_seconds(40), duration: _seconds(100));
+    await session.setRoute(1);
+
+    expect(repository.routes, [1]);
+    expect(repository.resolved, hasLength(1));
+    expect(repository.fallbacks, 0);
+    expect(player.opened, hasLength(2));
+    expect(player.opened.last.start, _seconds(40));
+    expect(session.routeIndex, 1);
+    expect(session.ready, isTrue);
+    expect(repository.released, contains('session-1'));
   });
 
   test('speed changes are saved and applied unless boosting', () async {

@@ -6,6 +6,9 @@
 
 本次为移动端适配与稳定性修复版本，Android / Windows / iOS / 本地服务版同步生效。
 
+### 新增
+- 播放器「播放设置」里新增播放线路（线路切换）：同一集有多条可用线路时，可逐条切换且保留当前进度。原生核心补齐 `selectRoute` 指令与 `nativeSelectRoute`，Dart 侧 `AppRepository` / `PlaybackLoader` / `PlaybackSession` 打通 `selectRoute`，播放设置面板在清晰度下方按线路数量渲染「线路 N」选项。
+
 ### 修复
 - 修复爱看机器人（ikanbot）海报全部显示不出来：它的封面直接指向豆瓣图床（`imgN.doubanio.com`），豆瓣按 Referer 防盗链，缺 Referer 的请求全部返回 HTTP 403 或一张默认图；核心现在对该域名统一补豆瓣 Referer。另外豆瓣还会按 TLS 指纹做风控——即使 Referer 正确，标准 Go 传输拿到的仍是一段反爬脚本，此时自动换浏览器指纹传输重试一次（仅限 https）。本机实测同一页 24 张海报从 0/24 变 24/24 成功。
 - 修复部分网页站点播报 `tls: failed to verify certificate: x509`（Android 端最多见）：以 FFI 嵌入时 Go 的 crypto/tls 不加载系统信任库，`SystemCertPool()` 为空，站源换成小众公共根证书后握手就失败。核心的传输现在使用「系统信任库 + 随包 CA 全集」作为信任锚（其他平台只是多追加一份，行为不变）。

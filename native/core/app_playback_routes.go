@@ -155,3 +155,26 @@ func (engine *nativeEngine) nativeReleasePlayback(session string) {
 		stream.nativeRelease(choice.streamSession)
 	}
 }
+
+func (engine *nativeEngine) nativeSelectRoute(ctx context.Context, session string, index int) (nativePlan, error) {
+	engine.mu.Lock()
+	choice, exists := engine.playbacks[session]
+	engine.mu.Unlock()
+	if !exists {
+		return nativePlan{}, errors.New("播放线路已失效，请重新解析播放")
+	}
+	if index < 0 || index >= len(choice.media) {
+		return nativePlan{}, errors.New("该播放线路不可用")
+	}
+	if index != choice.index {
+		choice.index = index
+	}
+	return engine.nativeOpenPlayback(ctx, choice)
+}
+
+func nativePreferredRoute(preferred, count int) int {
+	if preferred <= 0 || preferred >= count {
+		return 0
+	}
+	return preferred
+}

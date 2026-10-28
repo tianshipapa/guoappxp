@@ -493,6 +493,13 @@ func nativeDispatch(input nativeInput) (any, error) {
 			return engine.nativeNextPlayback(playback, input.Session)
 		}
 		return engine.nativeResolve(playback, input)
+	case "selectRoute":
+		playback, finish, err := engine.nativeBeginPlayback(ctx, input.Sequence)
+		if err != nil {
+			return nil, err
+		}
+		defer finish()
+		return engine.nativeSelectRoute(playback, input.Session, input.Route)
 	case "cancelPlayback":
 		engine.nativeCancelPlayback(input.Sequence)
 		return true, nil

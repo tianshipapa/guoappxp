@@ -197,6 +197,11 @@ class PlaybackSession extends ChangeNotifier {
   bool get danmakuSupported => detail.drama.source == SourceSite.hongguo.id;
   bool get danmakuEnabled => _danmakuEnabled;
 
+  /// 当前播放线路（1 起）与可用线路总数。本地播放或单线路时总数为 1。
+  int get routeIndex => _plan?.routeIndex ?? 0;
+  int get routeCount => _plan?.routeCount ?? 1;
+  bool get canSwitchRoute => _plan != null && _plan!.routeCount > 1;
+
   /// 去广告：解析播放地址时尝试跳过源站片头广告。
   bool get adBlock => _adBlock;
   bool get hasPrevious => _index > 0;
@@ -472,12 +477,14 @@ class PlaybackSession extends ChangeNotifier {
     double position = 0,
     PlaybackRecoveryAction? recovery,
     bool playWhenReady = true,
+    int? switchRoute,
   }) async {
     if (!_usable || index < 0 || index >= detail.episodes.length) return;
     endBoost();
     _staleAudio = false;
     if (index != _index) _online = false;
-    if (recovery == null &&
+    if (switchRoute == null &&
+        recovery == null &&
         position == 0 &&
         _standbyOpen &&
         _standbyIndex == index &&
@@ -485,7 +492,8 @@ class PlaybackSession extends ChangeNotifier {
       return _swap(index, playWhenReady);
     }
     _dropStandby();
-    final warmed = recovery == null
+    final warmed = recovery == null &&
+            switchRoute == null
         ? _preloader.take(
             detail.drama,
             detail.episodes[index],
@@ -515,7 +523,7 @@ class PlaybackSession extends ChangeNotifier {
     _loadingMessage = switch (recovery) {
       PlaybackRecoveryAction.alternative => '正在切换备用线路',
       PlaybackRecoveryAction.refresh => '正在重新获取播放地址',
-      _ => '正在准备播放',
+      _ => switchRoute != null ? '正在切换线路' : '正在准备播放',
     };
     _notify();
     PlaybackPlan? prepared;
@@ -530,15 +538,21 @@ class PlaybackSession extends ChangeNotifier {
         await player.stop();
         final previous = _plan;
         _plan = null;
-        if (recovery == PlaybackRecoveryAction.alternative) {
+        // 手动切线路与自动换备线都复用旧会话（selectRoute/fallback），
+        // 其余情况释放旧会话。
+        if (recovery == PlaybackRecoveryAction.alternative ||
+            switchRoute != null) {
           retained = previous;
         } else if (previous != null) {
           await _release(previous.session);
         }
       });
       if (!_current(ticket)) return;
-      prepared = retained != null
-          ? await _loader.fallback(retained!)
+      final retainedPlan = retained;
+      prepared = switchRoute != null && retainedPlan != null
+          ? await _loader.selectRoute(retainedPlan, switchRoute)
+          : retainedPlan != null
+          ? await _loader.fallback(retainedPlan)
           : warmed != null
           ? await _loader.use(warmed)
           : await _loader.load(
@@ -928,6 +942,24 @@ class PlaybackSession extends ChangeNotifier {
       _index,
       position: currentPosition,
       playWhenReady: _error != null || player.state.playing,
+    );
+  }
+
+  /// 手动切换到第 [route] 条线路（0 起）：保留当前进度，复用旧会话走
+  /// selectRoute。只有存在多条可用线路时才生效。
+  Future<void> setRoute(int route) async {
+    final plan = _plan;
+    if (plan == null || plan.local) return;
+    if (route < 0 || route >= plan.routeCount) return;
+    if (route == plan.routeIndex) return;
+    DiaryService.add(
+      '[Play] 手动切换线路 ${route + 1}/${plan.routeCount} session=${plan.session}',
+    );
+    await play(
+      _index,
+      position: currentPosition,
+      playWhenReady: _error != null || player.state.playing,
+      switchRoute: route,
     );
   }
 

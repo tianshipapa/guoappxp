@@ -218,6 +218,8 @@ abstract class AppRepository {
     bool adBlock = true,
   });
   Future<PlaybackPlan> fallback(PlaybackPlan current);
+  Future<PlaybackPlan> selectRoute(PlaybackPlan current, int route) =>
+      throw AppFailure('当前环境不支持切换播放线路');
   Future<void> cancelPlayback();
   Future<void> release(String session);
 
@@ -795,6 +797,16 @@ class NativeRepository extends AppRepository {
         await _call({
           'action': 'fallback',
           'session': current.session,
+          'sequence': ++_playbackSequence,
+        }),
+      );
+  @override
+  Future<PlaybackPlan> selectRoute(PlaybackPlan current, int route) async =>
+      PlaybackPlan.fromJson(
+        await _call({
+          'action': 'selectRoute',
+          'session': current.session,
+          'route': route,
           'sequence': ++_playbackSequence,
         }),
       );

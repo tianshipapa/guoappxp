@@ -132,6 +132,39 @@ class PlaybackSettings extends StatelessWidget {
                   ],
           ),
           if (!session.local) ...[
+            const SizedBox(height: 18),
+            Text('播放线路', style: label),
+            const SizedBox(height: 4),
+            if (session.routeCount <= 1)
+              Text('本集只有一条可用线路', style: label)
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '当前第 ${session.routeIndex + 1} / ${session.routeCount} 条，切换后从原进度继续',
+                    style: label,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (var route = 0; route < session.routeCount; route += 1)
+                        _Choice(
+                          label: '线路 ${route + 1}',
+                          selected: route == session.routeIndex,
+                          onSelected: session.ready
+                              ? () => _change(() => session.setRoute(route))
+                              : null,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            const SizedBox(height: 8),
+          ],
+          if (!session.local) ...[
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
