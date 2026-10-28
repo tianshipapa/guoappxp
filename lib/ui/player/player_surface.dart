@@ -19,7 +19,7 @@ String formatClock(Duration value) {
   return seconds >= 3600 ? '${seconds ~/ 3600}:$clock' : clock;
 }
 
-enum _Popup { quality, speed, volume }
+enum _Popup { quality, route, speed, volume }
 
 class PlayerSurface extends StatefulWidget {
   const PlayerSurface({
@@ -620,6 +620,19 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             ready && !_session.local ? () => _open(_Popup.quality) : null,
           ),
         ),
+        // 线路紧挨着清晰度放：两者都是「换一条地址重播」，桌面端没有手机那套
+        // 播放设置抽屉，线路只能在这里给入口。
+        if (!_session.local)
+          _popupTarget(
+            _Popup.route,
+            _text(
+              '线路 ${_session.routeIndex + 1}/${_session.routeCount}',
+              '播放线路',
+              ready && _session.canSwitchRoute
+                  ? () => _open(_Popup.route)
+                  : null,
+            ),
+          ),
         _popupTarget(
           _Popup.speed,
           _text(
@@ -660,7 +673,12 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   Widget _popupTarget(_Popup popup, Widget child) {
-    final enabled = popup != _Popup.quality || !_session.local;
+    final enabled = switch (popup) {
+      // 本地文件没有清晰度与线路可选，悬停展开只会弹出空面板。
+      _Popup.quality => !_session.local,
+      _Popup.route => _session.canSwitchRoute,
+      _ => true,
+    };
     return CompositedTransformTarget(
       link: _links[popup]!,
       child: MouseRegion(
@@ -729,6 +747,14 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   Widget _popupBody(BuildContext context, _Popup popup) {
     final body = switch (popup) {
       _Popup.volume => _volume(context),
+      _Popup.route => _options<int>(
+        values: [
+          for (var route = 0; route < _session.routeCount; route += 1) route,
+        ],
+        selected: _session.routeIndex,
+        label: (value) => '线路 ${value + 1}',
+        onSelected: (value) => _change(() => _session.setRoute(value)),
+      ),
       _Popup.speed => _options<double>(
         values: playbackSpeeds.reversed.toList(),
         selected: _session.speed,
