@@ -202,6 +202,16 @@ class PlaybackSession extends ChangeNotifier {
   int get routeCount => _plan?.routeCount ?? 1;
   bool get canSwitchRoute => _plan != null && _plan!.routeCount > 1;
 
+  /// 投屏用的播放地址：指向核心的本机流服务，投屏时要把主机换成手机内网地址。
+  String get streamUrl => _plan?.url ?? '';
+
+  /// 投屏到电视时显示的标题：剧名 + 当前集。
+  String get castTitle {
+    final name = detail.drama.title;
+    final label = episode.title;
+    return label.isEmpty ? name : '$name $label';
+  }
+
   /// 去广告：解析播放地址时尝试跳过源站片头广告。
   bool get adBlock => _adBlock;
   bool get hasPrevious => _index > 0;

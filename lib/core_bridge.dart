@@ -223,6 +223,13 @@ abstract class AppRepository {
   Future<void> cancelPlayback();
   Future<void> release(String session);
 
+  /// 投屏：核心把当前播放会话再挂一份到 0.0.0.0，返回电视能访问的内网基址。
+  /// 非原生核心（测试替身 / 平台不支持）直接报错，界面据此隐藏投屏入口。
+  Future<String> castBase() async => throw AppFailure('当前环境不支持投屏');
+
+  /// 停止投屏后关掉局域网监听，避免端口一直开着。
+  Future<void> releaseCastBase() async {}
+
   // ---- 自定义源管理（所有人可用，不限制管理员）----
   Future<List<CustomSourceSite>> customSources() async => const [];
   Future<CustomSourceSite> addCustomSource({
@@ -981,6 +988,23 @@ class NativeRepository extends AppRepository {
     }
     try {
       await _call({'action': 'release', 'session': session});
+    } catch (_) {}
+  }
+
+  @override
+  Future<String> castBase() async {
+    final data = await _call({'action': 'castBase'});
+    final base = data['base'];
+    if (base is! String || base.isEmpty) {
+      throw AppFailure('无法获取局域网投屏地址，请确认手机已连接 Wi-Fi');
+    }
+    return base;
+  }
+
+  @override
+  Future<void> releaseCastBase() async {
+    try {
+      await _call({'action': 'closeCast'});
     } catch (_) {}
   }
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../cast/cast_controller.dart';
+import '../../cast/cast_sheet.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import '../theme/app_theme.dart';
@@ -163,6 +165,39 @@ class PlaybackSettings extends StatelessWidget {
                 ],
               ),
             const SizedBox(height: 8),
+          ],
+          if (CastController.instance.supported) ...[
+            const SizedBox(height: 18),
+            Text('投屏', style: label),
+            const SizedBox(height: 4),
+            ListenableBuilder(
+              listenable: CastController.instance,
+              builder: (context, _) {
+                final cast = CastController.instance;
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  enabled: !session.local,
+                  leading: Icon(
+                    cast.casting ? Icons.tv_rounded : Icons.cast_rounded,
+                  ),
+                  title: Text(
+                    cast.casting ? (cast.device?.name ?? '投屏设备') : '投屏到电视',
+                  ),
+                  subtitle: Text(
+                    cast.casting
+                        ? (cast.playing ? '正在投屏 · 点击管理' : '已暂停 · 点击管理')
+                        : session.local
+                        ? '本地文件不支持投屏'
+                        : '同一 Wi-Fi 下搜索电视、盒子或投影仪',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: session.local
+                      ? null
+                      : () => showCastSheet(context, session: session),
+                );
+              },
+            ),
+            if (!session.local) const SizedBox(height: 8),
           ],
           if (!session.local) ...[
             const SizedBox(height: 8),

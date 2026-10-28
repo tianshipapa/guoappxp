@@ -506,6 +506,17 @@ func nativeDispatch(input nativeInput) (any, error) {
 	case "release":
 		engine.nativeReleasePlayback(input.Session)
 		return true, nil
+	// 投屏：把当前播放会话再挂一份到 0.0.0.0，返回电视能访问的内网基址；
+	// 停止投屏时关掉该监听，会话本身不影响本机播放。
+	case "castBase":
+		base, err := engine.nativeCastBase()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"base": base}, nil
+	case "closeCast":
+		engine.nativeCloseCast()
+		return true, nil
 	case "customSources":
 		return map[string]any{"items": engine.customMaccmsSources()}, nil
 	// sourceStatus：本地服务版（native/server）用它判断某个站源在当前构建里是否存在。
