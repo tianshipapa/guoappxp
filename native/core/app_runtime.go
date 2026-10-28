@@ -129,6 +129,7 @@ type nativeInput struct {
 	Quality         int                     `json:"quality"`
 	Route           int                     `json:"route"`
 	Session         string                  `json:"session"`
+	Peer            string                  `json:"peer"`
 	Sequence        int64                   `json:"sequence"`
 	Force           bool                    `json:"force"`
 	AdBlock         *bool                   `json:"adBlock"`
@@ -507,9 +508,10 @@ func nativeDispatch(input nativeInput) (any, error) {
 		engine.nativeReleasePlayback(input.Session)
 		return true, nil
 	// 投屏：把当前播放会话再挂一份到 0.0.0.0，返回电视能访问的内网基址；
-	// 停止投屏时关掉该监听，会话本身不影响本机播放。
+	// 停止投屏时关掉该监听，会话本身不影响本机播放。Peer 是电视地址，
+	// 用来确定手机这一侧走哪块网卡（Android 网卡枚举不一定可用）。
 	case "castBase":
-		base, err := engine.nativeCastBase()
+		base, err := engine.nativeCastBase(input.Peer)
 		if err != nil {
 			return nil, err
 		}

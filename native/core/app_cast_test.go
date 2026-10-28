@@ -43,7 +43,7 @@ func TestNativeCastPlaylistUsesRequestHost(t *testing.T) {
 }
 
 func TestNativeCastBaseOpensLanListener(t *testing.T) {
-	if nativeLocalIPv4() == "" {
+	if nativeCastAddress("", 0) == "" {
 		t.Skip("本机没有可用的内网地址")
 	}
 	engine, err := newNativeEngine(t.TempDir())
@@ -56,7 +56,7 @@ func TestNativeCastBaseOpensLanListener(t *testing.T) {
 	}
 	defer stream.server.Close()
 
-	base, err := stream.nativeCastBase()
+	base, err := stream.nativeCastBase("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestNativeCastBaseOpensLanListener(t *testing.T) {
 		t.Fatalf("投屏基址应是内网地址，实际：%s", base)
 	}
 	// 复用同一个基址，不要每次投屏都开新端口。
-	again, err := stream.nativeCastBase()
+	again, err := stream.nativeCastBase("")
 	if err != nil || again != base {
 		t.Fatalf("重复读取投屏基址应保持一致：%s %v", again, err)
 	}
@@ -87,6 +87,37 @@ func TestNativeCastBaseOpensLanListener(t *testing.T) {
 	}
 	if stream.castBase != "" {
 		t.Fatalf("关闭投屏后应清空基址，实际：%s", stream.castBase)
+	}
+}
+
+// 投屏地址不能是回环、未指定或链路本地地址，否则电视拉不到流。
+func TestNativeUsableIPv4(t *testing.T) {
+	cases := map[string]string{
+		"192.168.1.20":  "192.168.1.20",
+		"10.0.0.5":      "10.0.0.5",
+		"172.20.3.4":    "172.20.3.4",
+		"127.0.0.1":     "",
+		"0.0.0.0":       "",
+		"169.254.10.10": "",
+		"::1":           "",
+		"":              "",
+		"not-an-ip":     "",
+	}
+	for input, want := range cases {
+		if got := nativeUsableIPv4(input); got != want {
+			t.Fatalf("nativeUsableIPv4(%q) = %q，期望 %q", input, got, want)
+		}
+	}
+}
+
+// 取到的投屏地址必须是能用的（本机没有任何网络时跳过）。
+func TestNativeCastAddressIsUsable(t *testing.T) {
+	address := nativeCastAddress("", 0)
+	if address == "" {
+		t.Skip("本机没有可用的内网地址")
+	}
+	if nativeUsableIPv4(address) != address {
+		t.Fatalf("投屏地址不合格：%q", address)
 	}
 }
 

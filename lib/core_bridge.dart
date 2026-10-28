@@ -224,8 +224,11 @@ abstract class AppRepository {
   Future<void> release(String session);
 
   /// 投屏：核心把当前播放会话再挂一份到 0.0.0.0，返回电视能访问的内网基址。
+  /// [peer] 是电视的地址，核心据此确定手机这一侧用哪块网卡（Android 上
+  /// 枚举网卡不一定拿得到地址，按路由挑出口最可靠）。
   /// 非原生核心（测试替身 / 平台不支持）直接报错，界面据此隐藏投屏入口。
-  Future<String> castBase() async => throw AppFailure('当前环境不支持投屏');
+  Future<String> castBase({String peer = ''}) async =>
+      throw AppFailure('当前环境不支持投屏');
 
   /// 停止投屏后关掉局域网监听，避免端口一直开着。
   Future<void> releaseCastBase() async {}
@@ -992,8 +995,11 @@ class NativeRepository extends AppRepository {
   }
 
   @override
-  Future<String> castBase() async {
-    final data = await _call({'action': 'castBase'});
+  Future<String> castBase({String peer = ''}) async {
+    final data = await _call({
+      'action': 'castBase',
+      if (peer.isNotEmpty) 'peer': peer,
+    });
     final base = data['base'];
     if (base is! String || base.isEmpty) {
       throw AppFailure('无法获取局域网投屏地址，请确认手机已连接 Wi-Fi');

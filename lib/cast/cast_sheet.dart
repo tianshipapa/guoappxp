@@ -55,7 +55,10 @@ class _CastSheetState extends State<CastSheet> {
     });
     try {
       // 电视拉不到手机的 127.0.0.1，地址要换成核心在局域网口上开的同一份流。
-      final base = await session.repository.castBase();
+      // 把电视地址一起给它：核心据此挑手机这一侧走哪块网卡（Android 上枚举
+      // 网卡不一定拿得到地址，按到电视的路由挑出口最可靠）。
+      final peer = Uri.tryParse(target.controlUrl)?.host ?? '';
+      final base = await session.repository.castBase(peer: peer);
       final path = Uri.parse(session.streamUrl).path;
       await _cast.start(
         target: target,
