@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
+import 'option_layout.dart';
 import 'playback_handle.dart';
 import 'player_gestures.dart';
 
@@ -775,6 +776,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     );
   }
 
+  /// 弹层单个选项的高度，估算每列能放几项时按它算。
+  static const double _optionHeight = 36;
+
   Widget _options<T>({
     required List<T> values,
     required T selected,
@@ -782,33 +786,57 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     required void Function(T) onSelected,
   }) {
     final colors = Theme.of(context).colorScheme;
+    // 弹层贴在控制条上方，控制条又贴着窗口底部，所以可用高度只有窗口高度减去
+    // 控制条和留白。线路多的源一集可能几十条线路，单列会顶穿窗口上沿（超出
+    // 屏幕的部分直接看不到），因此按可用高度算出每列行数，超出的排到右侧成多列。
+    final rows = ((MediaQuery.sizeOf(context).height - 180) / _optionHeight)
+        .floor()
+        .clamp(3, 9);
+    final columns = optionColumns(values, maxRows: rows);
+    final multi = columns.length > 1;
+    Widget cell(T value) => InkWell(
+      borderRadius: BorderRadius.circular(8),
+      hoverColor: Colors.white.withValues(alpha: .14),
+      onTap: () => onSelected(value),
+      child: Container(
+        height: _optionHeight,
+        constraints: BoxConstraints(minWidth: multi ? 88 : 72),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        alignment: Alignment.center,
+        child: Text(
+          label(value),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: value == selected ? FontWeight.w700 : FontWeight.w500,
+            color: value == selected ? colors.primary : Colors.white,
+          ),
+        ),
+      ),
+    );
+    if (!multi) {
+      return IntrinsicWidth(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [for (final value in values) cell(value)],
+        ),
+      );
+    }
     return IntrinsicWidth(
-      child: Column(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final value in values)
-            InkWell(
-              borderRadius: BorderRadius.circular(8),
-              hoverColor: Colors.white.withValues(alpha: .14),
-              onTap: () => onSelected(value),
-              child: Container(
-                height: 36,
-                constraints: const BoxConstraints(minWidth: 72),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                alignment: Alignment.center,
-                child: Text(
-                  label(value),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: value == selected
-                        ? FontWeight.w700
-                        : FontWeight.w500,
-                    color: value == selected ? colors.primary : Colors.white,
-                  ),
-                ),
+          for (final (index, column) in columns.indexed) ...[
+            if (index > 0) const SizedBox(width: 10),
+            IntrinsicWidth(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [for (final value in column) cell(value)],
               ),
             ),
+          ],
         ],
       ),
     );
