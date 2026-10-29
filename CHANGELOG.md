@@ -2,6 +2,19 @@
 
 每个版本一节，标题为 `pubspec.yaml` 中的完整版本号。发布工作流会把对应一节写入 GitHub Release 说明。
 
+## 1.2.2+107
+
+本次只改出包流程，运行时代码零改动；Android / Windows / macOS / iOS / 本地服务版的行为与 1.2.1 完全一致。
+
+### 修复
+- 修复 iOS 构建失败 `Lexical or Preprocessor Issue (Xcode): 'ffmpegkit/FFmpegKitConfig.h' file not found`（`ffmpeg_kit_flutter_new_min_gpl/Sources/.../FFmpegKitFlutterPlugin.m:21`）。这个插件的 8 个预编译框架不在 pub 包里，而是由插件 podspec 的 `prepare_command` 在 `pod install` 时从 GitHub release 下载；而 `prepare_command` 只在「这个 pod 确实需要安装」时才执行——CI 把 `ios/Pods` 作为缓存还原、`Podfile.lock` 与已装清单一致时，CocoaPods 判定插件早就装好，直接跳过下载（日志里那次 `pod install` 只花 1.7 秒、没有任何 `Installing ...` 行），框架其实不在（它落在 pub 缓存里，与 `ios/Pods` 是两份独立缓存），于是 26 秒的 Xcode build 之后才在编译期报头文件找不到。macOS job 没有 Pods 缓存，所以现象上「只有 iOS 坏」。
+
+### 改进
+- 新增 `scripts/ffmpeg_frameworks.py`：出包前显式检查并准备 iOS / macOS 的 ffmpeg 原生框架，不再依赖 `pod install` 的副作用。下载失败会按 GitHub 直连 → `cfkua.wokaotianshi.eu.org` → `ghfast.top` → `gh-proxy.com` 的顺序换镜像重试，全部失败时直接以明确文案中止（而不是拖到编译期报头文件缺失）；八份框架逐项校验齐全才算装好。`build_ios.py`、`build_macos.py` 在 `pod install` 之前调用它。
+- 两个 `Podfile` 增加 `pre_install` 钩子：生成 Pods 工程前再检查一次框架，因此单独执行 `pod install`、或在 Xcode 里直接构建也不会漏（幂等，框架已在则立即返回）。下载失败时抛的是可读的中文错误，并提示用 `FFMPEG_KIT_IOS_URL` / `FFMPEG_KIT_MACOS_URL` 指定镜像。
+- 旧 `ios/Pods` / `macos/Pods` 若是「框架还缺失」时生成的，其 `FRAMEWORK_SEARCH_PATHS` 里不会有 ffmpegkit，事后补框架也没用：现在检测到这种情况会丢掉该 `Pods` 目录让 `pod install` 重新生成，避免继续沿用坏工程。
+- `build_macos.py` 的 `package_path()` 挪进 `ffmpeg_frameworks.py` 共用（顺带修正 `file://` 前缀裁剪后 Windows 路径丢盘符的问题）。
+
 ## 1.2.1+106
 
 本次修复搜索相关的三处问题，Android / Windows / macOS / iOS / 本地服务版同步生效。

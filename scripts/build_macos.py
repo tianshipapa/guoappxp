@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from app_build import BuildVariant, add_variant_argument
+from ffmpeg_frameworks import ensure_pods, package_path
 
 root = Path(__file__).resolve().parents[1]
 
@@ -46,18 +47,6 @@ def toolchain_environment(developer):
     return env
 
 
-def package_path(name):
-    import json
-    config = root / '.dart_tool' / 'package_config.json'
-    if not config.is_file():
-        return None
-    for package in json.loads(config.read_text())['packages']:
-        if package['name'] == name:
-            path = Path(package['rootUri'].removeprefix('file://'))
-            return path if path.is_absolute() else (config.parent / path).resolve()
-    return None
-
-
 def repair_media_kit(env):
     package = package_path('media_kit_libs_macos_video')
     if package is None:
@@ -90,6 +79,9 @@ def main():
     run([sys.executable, root / 'scripts' / 'build_native.py', '--platform', 'darwin',
          *variant.arguments], env)
     run([flutter, 'pub', 'get', '--enforce-lockfile'], env)
+    # 同 iOS：ffmpeg_kit_flutter_new 的 macOS 框架也是 pod install 时按需下载，
+    # 缓存命中时会被跳过，出包前先自己补上。
+    ensure_pods('macos', root, env)
     run([pod, 'install'], env, cwd=root / 'macos')
     repair_media_kit(env)
     run([flutter, 'build', 'macos', '--release', '--no-pub',

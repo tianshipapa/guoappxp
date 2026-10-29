@@ -4,15 +4,13 @@
 
 Flutter 多端独立短剧 / 影视应用
 
-## 最近更新（1.2.1+106）
+## 最近更新（1.2.2+107）
 
-本次修搜索相关的三处问题，各平台同步生效。完整历史见 [CHANGELOG.md](CHANGELOG.md)。
+本次只修 iOS 出包，运行时代码零改动。完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 
-- **修复桌面端搜索页看不到「全部源」开关**：原来要求「构建带 `ALL_SOURCES` 且已开启站源多于一个」才显示，窗口模式下经常算不出多个站源，同一份包切到电视模式反而能看到。现在只看构建能力或实际可搜站源数，真果鉴必定显示，红果鉴导入自定义源后也能跨源搜。
-- **修复 Windows / macOS 切到「电视」界面模式后搜索框点不开**：电视分支用的是 Android 的原生隐藏输入框，桌面端没有这条通道，点了什么都不会发生。现在只有 Android 走原生输入法，桌面端无论哪种界面模式都用普通输入框。
-- **桌面端输入拼音首字母会弹出候选剧名**：搜索框敲 `BDZC` 时，先从追剧、观看记录、最近搜索里按原文 / 拼音首字母匹配，分组显示「本地匹配」，点一条即用完整标题去搜；站源建议接在下面。电视端字母键盘的候选同样改成「本地拼音匹配 + 站源建议」合并。
+- **修复 iOS 构建报 `'ffmpegkit/FFmpegKitConfig.h' file not found`**：`ffmpeg_kit_flutter_new` 的预编译框架靠插件 podspec 的 `prepare_command` 在 `pod install` 时下载，而这一步在「pod 已装好」时会被整段跳过。CI 还原了 `ios/Pods` 缓存，`pod install` 1.7 秒就过、什么都没下，编译期才炸。现在出包脚本在 `pod install` 前自己把框架备好（失败会明确报错并试镜像），两个 `Podfile` 加 `pre_install` 钩子兜底，发现旧 Pods 的搜索路径里没有 ffmpegkit 会丢弃重建。
 
-上一版（1.2.0+105）的主要内容是电视端原生输入法、字母键盘、返回键二次确认、macOS 通用包与网页端拼音搜索，详见 CHANGELOG。
+上一版（1.2.1+106）的主要内容是搜索相关的三处修复，详见 CHANGELOG。
 
 ## 使用
 
@@ -109,6 +107,18 @@ Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_
 4. 只想先出 Android / Windows / 网页版：手动运行时**取消勾选 `with_ios` 与 `with_macos`**，Release 会照常发布，只缺 IPA 与 dmg。
 
 为降低开销，iOS 与 macOS 各自的两个版本都合在同一个 macOS job 里顺序构建（环境初始化、`pub get`、`pod install` 只付一次，Pods 有缓存），并且这两个 job 失败或被跳过都**不会**拦住其它平台的发布——Release 说明里会写明本次未包含 IPA / dmg。
+
+#### iOS / macOS 的 ffmpeg 原生框架，以及 `FFmpegKitConfig.h` file not found
+
+播放器把下载完的视频转封装成 mp4 用的是 `ffmpeg_kit_flutter_new_min_gpl`，它的预编译框架（8 个，iOS 约 100 MB）**不在 pub 包里**，而是由插件 podspec 的 `prepare_command` 在 `pod install` 时从 GitHub release 下载。这里有个坑：`prepare_command` 只在「这个 pod 需要安装」时才执行——`ios/Pods` 被 CI 缓存还原、`Podfile.lock` 与已装清单一致时，CocoaPods 认为插件早就装好了，整段跳过，框架就永远补不上，最后在编译期报 `'ffmpegkit/FFmpegKitConfig.h' file not found`（1.2.2 之前 iOS 就栽在这上面；macOS job 没有 Pods 缓存，所以看上去「只有 iOS 坏」）。
+
+现在有三道保险：
+
+1. `build_ios.py` / `build_macos.py` 在 `pod install` 之前先把框架备好（`scripts/ffmpeg_frameworks.py`），下载失败会明确报错并依次尝试镜像，不再把问题拖到编译期；
+2. 两个 `Podfile` 都加了 `pre_install` 钩子，生成工程前再检查一次，所以单独跑 `pod install`（或 Xcode 里构建）也不会漏；
+3. 框架刚下载完，或者发现旧 `Pods` 的搜索路径里根本没有 ffmpegkit（说明这份工程是框架缺失时生成的，补上框架也没用），会丢掉 `ios/Pods` / `macos/Pods` 让 `pod install` 重新生成。
+
+网络受限时用 `FFMPEG_KIT_IOS_URL` / `FFMPEG_KIT_MACOS_URL` 指向可达的镜像；只查状态不动手：`python3 scripts/ffmpeg_frameworks.py [ios|macos]`，加 `--download` 立即下载。
 
 ## 日志与排障
 

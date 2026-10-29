@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 
 from app_build import BuildVariant, add_variant_argument
+from ffmpeg_frameworks import ensure_pods
 
 root = Path(__file__).resolve().parents[1]
 
@@ -105,6 +106,9 @@ def main():
     if not flutter or not shutil.which('pod'):
         raise SystemExit('请安装 Flutter 和 CocoaPods。')
     run([flutter, 'pub', 'get', '--enforce-lockfile'])
+    # ffmpeg_kit_flutter_new 的 iOS 框架是 pod install 时按需下载的，Pods 被缓存
+    # 还原时那一步会被整段跳过，最后在编译期报 ffmpegkit/FFmpegKitConfig.h 找不到。
+    ensure_pods('ios')
     run(['pod', 'install'], cwd=root / 'ios')
     output = root / 'dist' / 'ios'
     output.mkdir(parents=True, exist_ok=True)
