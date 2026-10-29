@@ -15,6 +15,11 @@
 - 旧 `ios/Pods` / `macos/Pods` 若是「框架还缺失」时生成的，其 `FRAMEWORK_SEARCH_PATHS` 里不会有 ffmpegkit，事后补框架也没用：现在检测到这种情况会丢掉该 `Pods` 目录让 `pod install` 重新生成，避免继续沿用坏工程。
 - `build_macos.py` 的 `package_path()` 挪进 `ffmpeg_frameworks.py` 共用（顺带修正 `file://` 前缀裁剪后 Windows 路径丢盘符的问题）。
 
+### 出包减量
+- 手动触发新增 `full_variants` 开关，`with_ios` / `with_macos` 改为**默认关闭**：日常发版一个 macOS 分钟都不花，只出 Android / Windows / 网页版；需要 IPA 勾 `with_ios`、需要 dmg 勾 `with_macos`（单平台单变体约 20 分钟墙钟 ≈ 200 账单分钟，正好是 Free 账号一个月的 macOS 额度），要红果鉴那套再加勾 `full_variants`（全勾约四倍开销）。只出单套包时 Release 说明会自动注明「本次只出了真果鉴」，不会让人以为包漏发。
+- `ios` / `macos` 两个 job 的超时从 120 分钟压到 60 分钟：真卡住时最坏 600 账单分钟而不是 1200。
+- 工作流打开 `concurrency.cancel-in-progress`：上一轮还卡在等 macOS runner 时，重新触发会直接取消旧运行，不再出现「新运行一直 pending、job 一个都不出现」的假象。
+
 ## 1.2.1+106
 
 本次修复搜索相关的三处问题，Android / Windows / macOS / iOS / 本地服务版同步生效。

@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       with_ios:
-        description: '构建 iOS 包（macOS runner 按 10 倍分钟计费，额度不够时取消勾选）'
+        description: '构建 iOS 包（macOS runner 按 10 倍分钟计费；一次约 200 账单分钟，Free 额度一个月只够一次，默认关）'
         type: boolean
-        default: true
+        default: false
       with_macos:
-        description: '构建 macOS 包（同样走 macOS runner，按 10 倍分钟计费）'
+        description: '构建 macOS 包（同样走 macOS runner、同样 10 倍计费；默认关，需要 dmg 时再勾）'
         type: boolean
-        default: true
+        default: false
+      full_variants:
+        description: 'iOS / macOS 出两个版本（红果鉴 + 真果鉴）；不勾只出真果鉴，省一半 macOS 计费分钟'
+        type: boolean
+        default: false
       republish:
         description: '重复发布：同一版本已有 Release / tag 时覆盖重发（取消勾选则报错停止）'
         type: boolean
@@ -246,7 +250,8 @@ jobs:
     if: ${{ inputs.with_ios }}
     continue-on-error: true
     runs-on: macos-latest
-    timeout-minutes: 120
+    # 卡住时最多烧 60×10=600 分钟账单；实测单变体约 20 分钟墙钟，留足余量。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - *setup-python
@@ -277,6 +282,7 @@ jobs:
           restore-keys: |
             pods-${{ runner.os }}-${{ runner.arch }}-
       - name: Build unsigned iOS packages (红果鉴)
+        if: ${{ inputs.full_variants }}
         run: python scripts/build_ios.py
       - name: Build unsigned iOS packages (真果鉴)
         run: python scripts/build_ios.py --all-sources
@@ -299,7 +305,8 @@ jobs:
     if: ${{ inputs.with_macos }}
     continue-on-error: true
     runs-on: macos-latest
-    timeout-minutes: 120
+    # 卡住时最多烧 60×10=600 分钟账单；实测单变体约 20 分钟墙钟，留足余量。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - *setup-python
@@ -323,6 +330,7 @@ jobs:
           flutter --version
           flutter precache --macos
       - name: Build macOS packages (红果鉴)
+        if: ${{ inputs.full_variants }}
         run: python scripts/build_macos.py
       - name: Build macOS packages (真果鉴)
         run: python scripts/build_macos.py --all-sources
@@ -463,6 +471,18 @@ jobs:
           if [ "$dmg_count" -eq 0 ]; then
             echo "::warning::本次发布未包含 macOS 包（未勾选 with_macos 或 macos job 未成功）。"
             printf '\n注意：本次发布未包含 macOS 包，原因见 Actions 运行详情里的 macos job。\n' >> notes.md
+          fi
+          # 减量构建：iOS / macOS 只有勾了 full_variants 才出红果鉴。说明里必须写清楚，
+          # 否则拿到包的人会以为红果鉴 IPA / dmg 是漏发了。
+          hongguo_ipa=$(find release -maxdepth 1 -name 'hongguojian-*.ipa' | wc -l)
+          if [ "$ipa_count" -gt 0 ] && [ "$hongguo_ipa" -eq 0 ]; then
+            echo "::warning::本次 iOS 只出了真果鉴（full_variants 未勾选）。"
+            printf '\n注意：本次 iOS 只出了真果鉴（为节省 macOS 计费分钟），红果鉴 IPA 需另行构建。\n' >> notes.md
+          fi
+          hongguo_dmg=$(find release -maxdepth 1 -name 'hongguojian-*.dmg' | wc -l)
+          if [ "$dmg_count" -gt 0 ] && [ "$hongguo_dmg" -eq 0 ]; then
+            echo "::warning::本次 macOS 只出了真果鉴（full_variants 未勾选）。"
+            printf '\n注意：本次 macOS 只出了真果鉴（为节省 macOS 计费分钟），红果鉴 dmg 需另行构建。\n' >> notes.md
           fi
           if [ "$EXISTS_RELEASE" = "1" ] || [ "$EXISTS_TAG" = "1" ]; then
             printf '\n本次为重复发布：已用同名包覆盖此前的 %s 旧资产。\n' "$TAG" >> notes.md

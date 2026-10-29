@@ -74,7 +74,7 @@ Flutter 多端独立短剧 / 影视应用
 | `ios-unsigned` | 两个版本的 arm64 iPhone 未签名 IPA（`hongguojian-…` / `zhenguojian-…`），下载后自行签名安装 |
 | `web` | `zhenguoweb.zip`：本地服务版合集，内含 `hongguojian.zip` / `zhenguojian.zip` 与 `SHA256SUMS.txt`，两个 zip 都带 Windows 版 `ffmpeg.exe` |
 
-触发时可以勾选/取消 `with_ios`（默认勾选）、`with_macos`（默认勾选）和 `republish`（默认勾选，允许同一版本覆盖重发）。
+触发时可以勾选/取消 `with_ios`、`with_macos`、`full_variants` 与 `republish`。**默认三个构建开关全不勾**，只出 Android / Windows / 网页版（全在免费的 Linux runner 上跑）；需要 IPA 才勾 `with_ios`，需要 dmg 再勾 `with_macos`，要两套包（红果鉴 + 真果鉴）再加勾 `full_variants`。单平台单变体约 20 分钟墙钟 ≈ 200 账单分钟，正好是 Free 账号一个月的 macOS 额度，所以**默认不勾**、要用时再花。只出单套包时，Release 说明里会自动写一行「本次只出了真果鉴」，不会让人以为包漏发了。
 
 Android、Windows、web 全部成功后才创建 tag 和 Release；iOS 与 macOS 不阻塞发布（见下文）。勾选 `republish` 时同名旧 Release 会被覆盖并重新指向当前提交；不勾选则不会动已有 Release。
 
@@ -118,7 +118,7 @@ Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_
 
 另外注意：`ios` 与 `macos` 两个 job 都是 `continue-on-error: true`，它们失败或被跳过**不会**让整条运行变红，所以「工作流成功了但没 IPA」是正常现象，别把它当成「没跑」。
 
-为降低开销，iOS 与 macOS 各自的两个版本都合在同一个 macOS job 里顺序构建（环境初始化、`pub get`、`pod install` 只付一次，Pods 有缓存），并且这两个 job 失败或被跳过都**不会**拦住其它平台的发布——Release 说明里会写明本次未包含 IPA / dmg。
+为降低开销，做了四件事：① iOS / macOS 各自的两个版本合在同一个 macOS job 里顺序构建（环境初始化、`pub get`、`pod install` 只付一次，Pods 有缓存）；② `with_ios` / `with_macos` / `full_variants` **默认全不勾**，日常发版一个 macOS 分钟都不花，只在需要 IPA / dmg 时手动勾（单平台单变体约 20 分钟墙钟 ≈ 200 账单分钟，正好是 Free 额度）；③ 这两个 job 的超时从 120 分钟压到 60 分钟（真卡住时最坏 600 账单分钟，而不是 1200）；④ 它们失败或被跳过都**不会**拦住其它平台的发布——Release 说明里会写明本次未包含 IPA / dmg。
 
 #### iOS / macOS 的 ffmpeg 原生框架，以及 `FFmpegKitConfig.h` file not found
 
