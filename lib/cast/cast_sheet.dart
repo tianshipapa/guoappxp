@@ -153,6 +153,34 @@ class _CastSheetState extends State<CastSheet> {
     }
   }
 
+  /// 转发投屏时反过来切回电视直连：把站源原始地址重新下发给电视，
+  /// 电视自己拉流，手机就能退出 App 了。
+  Future<void> _direct() async {
+    final target = _cast.device;
+    final direct = widget.session.castDirectUrl;
+    if (target == null || direct.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _failure = null;
+    });
+    try {
+      await _cast.start(
+        target: target,
+        url: direct,
+        title: widget.session.castTitle,
+        position: _cast.position,
+      );
+      if (!mounted) return;
+      setState(() => _busy = false);
+    } catch (failure) {
+      if (!mounted) return;
+      setState(() {
+        _failure = castMessage(failure);
+        _busy = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _cast,
@@ -187,7 +215,7 @@ class _CastSheetState extends State<CastSheet> {
                               '电视会直接拉取站源的原始线路，投屏后可以退出 App，'
                               '电视上的播放不受影响。'
                         : '把当前这一集投到同一 Wi-Fi 下的电视 / 盒子 / 投影仪。'
-                              '这条线路需要手机转发（加密或需要本机改写的播放列表），'
+                              '这条线路是 DRM 加密内容，电视无法直接解密，只能经手机转发，'
                               '投屏期间请留在 App，不要退出或彻底关闭。',
                     style: hint,
                   ),
@@ -299,6 +327,21 @@ class _CastSheetState extends State<CastSheet> {
               icon: const Icon(Icons.sync_rounded),
               label: const Text('电视播不出来？改用手机转发'),
             ),
+          ),
+        // 正在转发但这集本来有原始地址：允许切回直连，之后手机可以退出。
+        if (_cast.relayed && widget.session.castDirectUrl.isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _busy ? null : () => unawaited(_direct()),
+              icon: const Icon(Icons.cast_connected_rounded),
+              label: const Text('改用电视直连（可退出 App）'),
+            ),
+          ),
+        if (_failure case final failure?)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(failure, style: hint.copyWith(color: colors.error)),
           ),
         const SizedBox(height: 8),
         Text('暂停 / 继续只影响电视，本机画面保持暂停。', style: hint),
