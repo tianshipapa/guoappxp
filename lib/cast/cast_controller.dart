@@ -41,6 +41,11 @@ class CastController extends ChangeNotifier {
   CastDevice? device;
   bool casting = false;
   bool playing = true;
+
+  /// 本次投屏是否经手机转发拉流。false 表示电视直连站源原始地址，
+  /// 手机退出 App 也能继续播；true 表示电视连的是手机上的流服务。
+  bool relayed = false;
+
   Duration position = Duration.zero;
   Duration duration = Duration.zero;
   Timer? _poll;
@@ -79,16 +84,20 @@ class CastController extends ChangeNotifier {
     required String url,
     required String title,
     required Duration position,
+    bool relayed = false,
   }) async {
     await channel.invokeMethod<void>('play', {
       'controlUrl': target.controlUrl,
       'url': url,
       'title': title,
       'positionMs': position.inMilliseconds,
+      // 只有经手机转发才需要手机保持唤醒；直连时让手机自由休眠 / 退出。
+      'relay': relayed,
     });
     device = target;
     casting = true;
     playing = true;
+    this.relayed = relayed;
     error = null;
     this.position = position;
     duration = Duration.zero;
@@ -115,6 +124,7 @@ class CastController extends ChangeNotifier {
     device = null;
     casting = false;
     playing = true;
+    relayed = false;
     position = Duration.zero;
     duration = Duration.zero;
     notifyListeners();
@@ -177,6 +187,7 @@ class CastController extends ChangeNotifier {
     device = null;
     casting = false;
     playing = true;
+    relayed = false;
     position = Duration.zero;
     duration = Duration.zero;
   }

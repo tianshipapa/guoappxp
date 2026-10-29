@@ -53,27 +53,55 @@ class _CastSheetState extends State<CastSheet> {
       _busy = true;
       _failure = null;
     });
+    final position = Duration(
+      milliseconds: (session.currentPosition * 1000).round(),
+    );
+    var relayed = false;
     try {
-      // 电视拉不到手机的 127.0.0.1，地址要换成核心在局域网口上开的同一份流。
-      // 把电视地址一起给它：核心据此挑手机这一侧走哪块网卡（Android 上枚举
-      // 网卡不一定拿得到地址，按到电视的路由挑出口最可靠）。
-      final peer = Uri.tryParse(target.controlUrl)?.host ?? '';
-      final base = await session.repository.castBase(peer: peer);
-      final path = Uri.parse(session.streamUrl).path;
-      await _cast.start(
-        target: target,
-        url: '$base${path.isEmpty ? '/' : path}',
-        title: session.castTitle,
-        position: Duration(
-          milliseconds: (session.currentPosition * 1000).round(),
-        ),
-      );
-      // 本机暂停，免得两头同时播；片子仍由本机经局域网转发给电视。
+      // 首选把站源返回的原始地址直接交给电视：电视自己上网拉流，手机不再
+      // 参与转发，投屏后退出 App、切后台、锁屏都不影响电视上的播放。
+      final direct = session.castDirectUrl;
+      if (direct.isNotEmpty) {
+        try {
+          await _cast.start(
+            target: target,
+            url: direct,
+            title: session.castTitle,
+            position: position,
+          );
+        } catch (_) {
+          // 少数盒子只接受手机内网地址，直连被拒时退回转发，别让用户看到失败。
+        }
+      }
+      if (!_cast.casting) {
+        // 退回转发：电视拉不到手机的 127.0.0.1，地址要换成核心在局域网口上
+        // 开的同一份流。把电视地址一起给它：核心据此挑手机这一侧走哪块网卡。
+        final peer = Uri.tryParse(target.controlUrl)?.host ?? '';
+        final base = await session.repository.castBase(peer: peer);
+        final path = Uri.parse(session.streamUrl).path;
+        await _cast.start(
+          target: target,
+          url: '$base${path.isEmpty ? '/' : path}',
+          title: session.castTitle,
+          position: position,
+          relayed: true,
+        );
+        relayed = true;
+      }
+      // 本机暂停，免得两头同时播。
       if (!session.paused) session.togglePlayback();
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      messenger.showSnackBar(SnackBar(content: Text('已投屏到 ${target.name}')));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            relayed
+                ? '已投屏到 ${target.name} · 这条线路需要手机转发，请留在 App'
+                : '已投屏到 ${target.name} · 现在可以退出 App',
+          ),
+        ),
+      );
     } catch (failure) {
       if (!mounted) return;
       setState(() {
@@ -86,9 +114,43 @@ class _CastSheetState extends State<CastSheet> {
   Future<void> _stop() async {
     setState(() => _busy = true);
     await _cast.stop();
+    // 直连投屏时根本没开过局域网监听，这里调用是幂等的，顺带关掉旧版本
+    // 可能残留的转发端口。
     await widget.session.repository.releaseCastBase();
     if (!mounted) return;
     setState(() => _busy = false);
+  }
+
+  /// 直连成功但电视实际播不出来（比如要求 Referer）时的逃生口：
+  /// 换成经手机转发的地址重投一次，从当前进度继续。
+  Future<void> _relay() async {
+    final target = _cast.device;
+    if (target == null) return;
+    final session = widget.session;
+    setState(() {
+      _busy = true;
+      _failure = null;
+    });
+    try {
+      final peer = Uri.tryParse(target.controlUrl)?.host ?? '';
+      final base = await session.repository.castBase(peer: peer);
+      final path = Uri.parse(session.streamUrl).path;
+      await _cast.start(
+        target: target,
+        url: '$base${path.isEmpty ? '/' : path}',
+        title: session.castTitle,
+        position: _cast.position,
+        relayed: true,
+      );
+      if (!mounted) return;
+      setState(() => _busy = false);
+    } catch (failure) {
+      if (!mounted) return;
+      setState(() {
+        _failure = castMessage(failure);
+        _busy = false;
+      });
+    }
   }
 
   @override
@@ -120,8 +182,13 @@ class _CastSheetState extends State<CastSheet> {
                   Text('停止投屏后可以接着在本机看，进度不会同步回来。', style: hint),
                 ] else ...[
                   Text(
-                    '把当前这一集投到同一 Wi-Fi 下的电视 / 盒子 / 投影仪，'
-                    '手机上会暂停，投屏期间请不要退出播放器。',
+                    widget.session.castDirectUrl.isNotEmpty
+                        ? '把当前这一集投到同一 Wi-Fi 下的电视 / 盒子 / 投影仪。'
+                              '电视会直接拉取站源的原始线路，投屏后可以退出 App，'
+                              '电视上的播放不受影响。'
+                        : '把当前这一集投到同一 Wi-Fi 下的电视 / 盒子 / 投影仪。'
+                              '这条线路需要手机转发（加密或需要本机改写的播放列表），'
+                              '投屏期间请留在 App，不要退出或彻底关闭。',
                     style: hint,
                   ),
                   const SizedBox(height: 12),
@@ -193,6 +260,15 @@ class _CastSheetState extends State<CastSheet> {
             ),
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          _cast.relayed
+              ? '经手机转发：投屏期间请留在 App，退出后电视会断流。'
+              : '电视直连线路：可以退出 App，电视会自行继续播放。',
+          style: hint.copyWith(
+            color: _cast.relayed ? colors.error : colors.primary,
+          ),
+        ),
         const SizedBox(height: 12),
         Row(
           spacing: 8,
@@ -215,6 +291,15 @@ class _CastSheetState extends State<CastSheet> {
             ),
           ],
         ),
+        if (!_cast.relayed)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _busy ? null : () => unawaited(_relay()),
+              icon: const Icon(Icons.sync_rounded),
+              label: const Text('电视播不出来？改用手机转发'),
+            ),
+          ),
         const SizedBox(height: 8),
         Text('暂停 / 继续只影响电视，本机画面保持暂停。', style: hint),
       ],

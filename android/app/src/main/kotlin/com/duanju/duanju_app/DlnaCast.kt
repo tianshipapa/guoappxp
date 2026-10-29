@@ -49,6 +49,10 @@ class DlnaCast(context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // 是否经手机转发。直连原始线路时电视自己上网拉流，手机不需要维持任何
+    // 后台资源，也就不能持唤醒锁白耗电。
+    private var relaying = false
+
     fun discover(done: (List<DlnaDevice>, String) -> Unit) {
         executor.execute {
             var error = ""
@@ -78,9 +82,15 @@ class DlnaCast(context: Context) {
         url: String,
         title: String,
         positionMs: Long,
+        relay: Boolean,
         done: (Boolean, String) -> Unit
     ) = submit(done) {
-        acquireWakeLock()
+        relaying = relay
+        if (relay) {
+            acquireWakeLock()
+        } else {
+            releaseWakeLock()
+        }
         setTransportUri(controlUrl, url, title)
         if (positionMs > 1500) {
             runCatching {
@@ -100,7 +110,7 @@ class DlnaCast(context: Context) {
             when (command) {
                 "pause" -> soap(controlUrl, "Pause", "<InstanceID>0</InstanceID>")
                 "resume" -> {
-                    acquireWakeLock()
+                    if (relaying) acquireWakeLock()
                     soap(controlUrl, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
                 }
                 "stop" -> {
@@ -133,7 +143,8 @@ class DlnaCast(context: Context) {
         executor.shutdownNow()
     }
 
-    // 投屏期间本机只是转发流，画面是暂停的；不持锁很容易让系统休眠后断流。
+    // 只有经手机转发时才需要：本机在后台持续给电视供流，不持锁很容易让系统
+    // 休眠后断流。直连投屏不持锁，用户关屏 / 退出 App 都不影响电视播放。
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val power = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return

@@ -415,10 +415,12 @@ class MainActivity : FlutterActivity() {
                             val url = call.argument<String>("url").orEmpty()
                             val title = call.argument<String>("title").orEmpty()
                             val position = call.argument<Number>("positionMs")?.toLong() ?: 0L
+                            // 直连投屏电视自己拉流，只有转发才需要手机保持唤醒。
+                            val relay = call.argument<Boolean>("relay") ?: false
                             if (control.isEmpty() || url.isEmpty()) {
                                 result.error("invalid_cast", "缺少投屏设备或播放地址", null)
                             } else {
-                                dlna.play(control, url, title, position) { ok, message ->
+                                dlna.play(control, url, title, position, relay) { ok, message ->
                                     if (ok) result.success(null)
                                     else result.error("cast_failed", message, null)
                                 }

@@ -185,7 +185,8 @@ class PlaybackSettings extends StatelessWidget {
                   ),
                   subtitle: Text(
                     cast.casting
-                        ? (cast.playing ? '正在投屏 · 点击管理' : '已暂停 · 点击管理')
+                        ? '${cast.playing ? '正在投屏' : '已暂停'} · '
+                              '${cast.relayed ? '经手机转发' : '电视直连，可退出 App'}'
                         : session.local
                         ? '本地文件不支持投屏'
                         : '同一 Wi-Fi 下搜索电视、盒子或投影仪',

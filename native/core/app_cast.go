@@ -9,10 +9,29 @@ import (
 	"time"
 )
 
-// 投屏（DLNA）只需要一个电视能访问到的播放地址。核心本来就把每个在线播放
-// 会话挂在本机 127.0.0.1 的流服务上（加请求头、解密分片、重写播放列表），
-// 但电视拿不到手机的 127.0.0.1，所以投屏时再把同一个 handler 挂一份到
-// 0.0.0.0，返回「内网 IP + 该端口」给 Flutter 拼出真正的投屏地址。
+// 投屏（DLNA）只需要一个电视能访问到的播放地址。首选是把站源返回的原始
+// 地址直接交给电视，电视自己上网拉流，手机退出 App 也不影响播放。
+//
+// 但有些线路离开本机就播不了：HLS 播放列表由核心重写过（media.Playlist）、
+// 分片要用本机持有的密钥解密（CENC / AES-128），这些只能由核心在局域网口
+// 再挂一份流服务、让电视连手机拉。因此核心同时给出 directUrl，由 Flutter
+// 侧优先直连、失败再退回转发。
+
+// nativeCastDirectURL 返回可以直接交给电视拉流的原始地址。
+//
+// 返回空串表示这条线路必须经本机转发：本地文件、需要核心重建的播放列表、
+// 需要本机解密的加密分片，都属于这种情况。另外 adBlock 只在本机重写清单时
+// 生效，直连会丢掉去广告能力，但换来「关掉 App 也能继续看」，取舍上以能
+// 独立播放为准。
+func nativeCastDirectURL(media providerMedia) string {
+	if !isProviderHTTPMediaURL(media.URL) {
+		return ""
+	}
+	if media.Playlist != "" || len(media.CENCKey) > 0 || len(media.HLSKey) > 0 {
+		return ""
+	}
+	return media.URL
+}
 
 // nativeCastBase 打开（或复用）投屏监听，返回局域网可访问的基址。
 //

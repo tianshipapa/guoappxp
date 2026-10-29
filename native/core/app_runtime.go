@@ -152,6 +152,10 @@ type nativePlan struct {
 	DanmakuID       string            `json:"danmakuId,omitempty"`
 	Local           bool              `json:"local"`
 	URL             string            `json:"url"`
+	// DirectURL 是站源返回的原始播放地址（未经本机中转）。投屏时优先用它，
+	// 让电视自己去拉流，手机退出 App 也不影响播放。只有不需要本机重写播放
+	// 列表、也不需要本机解密分片时才非空；本地文件与加密线路为空。
+	DirectURL       string            `json:"directUrl,omitempty"`
 	Headers         map[string]string `json:"headers"`
 	Key             string            `json:"decryptionKey,omitempty"`
 	Quality         int               `json:"quality"`

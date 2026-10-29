@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -118,6 +119,61 @@ func TestNativeCastAddressIsUsable(t *testing.T) {
 	}
 	if nativeUsableIPv4(address) != address {
 		t.Fatalf("投屏地址不合格：%q", address)
+	}
+}
+
+// 直连地址只在「电视自己就能播」时才给：需要本机重建播放列表或解密分片的
+// 线路必须留空，让 Flutter 侧退回本机转发。
+func TestNativeCastDirectURL(t *testing.T) {
+	cases := []struct {
+		name  string
+		media providerMedia
+		want  string
+	}{
+		{"普通 m3u8 可直连", providerMedia{URL: "https://cdn.example.com/a.m3u8"}, "https://cdn.example.com/a.m3u8"},
+		{"普通 mp4 可直连", providerMedia{URL: "https://cdn.example.com/a.mp4"}, "https://cdn.example.com/a.mp4"},
+		{"本机重建的播放列表不可直连", providerMedia{URL: "https://cdn.example.com/a.m3u8", Playlist: "#EXTM3U\n"}, ""},
+		{"CENC 加密分片不可直连", providerMedia{URL: "https://cdn.example.com/a.m3u8", CENCKey: []byte("key")}, ""},
+		{"AES-128 分片不可直连", providerMedia{URL: "https://cdn.example.com/a.m3u8", HLSKey: []byte("key")}, ""},
+		{"非 http 地址不可直连", providerMedia{URL: "magnet:?xt=urn:btih:x"}, ""},
+	}
+	for _, test := range cases {
+		if got := nativeCastDirectURL(test.media); got != test.want {
+			t.Fatalf("%s：nativeCastDirectURL = %q，期望 %q", test.name, got, test.want)
+		}
+	}
+}
+
+// 播放计划要把原始地址一起交给 Flutter，否则投屏只能走手机转发。
+func TestNativeOpenPlaybackKeepsDirectURL(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		io.WriteString(w, "media")
+	}))
+	defer upstream.Close()
+	engine, err := newNativeEngine(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice := nativePlaybackChoices(providerMedia{URL: upstream.URL + "/a.mp4"}, 0)
+	choice.adBlock = false
+	plan, err := engine.nativeOpenPlayback(context.Background(), choice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DirectURL != upstream.URL+"/a.mp4" {
+		t.Fatalf("播放计划应保留原始地址，实际：%q", plan.DirectURL)
+	}
+	// 本机播放用的 url 仍然是本机中转地址，两者不能混用。
+	if plan.URL == plan.DirectURL {
+		t.Fatalf("本机播放地址不应等于直连地址：%q", plan.URL)
+	}
+	engine.nativeReleasePlayback(plan.Session)
+	engine.mu.Lock()
+	stream := engine.stream
+	engine.mu.Unlock()
+	if stream != nil {
+		_ = stream.server.Close()
 	}
 }
 

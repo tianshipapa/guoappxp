@@ -205,6 +205,10 @@ class PlaybackSession extends ChangeNotifier {
   /// 投屏用的播放地址：指向核心的本机流服务，投屏时要把主机换成手机内网地址。
   String get streamUrl => _plan?.url ?? '';
 
+  /// 站源给出的原始播放地址。非空时投屏直接把它交给电视，电视自己上网拉流，
+  /// 手机退出 App 也不影响播放；为空说明这条线路只能经手机转发。
+  String get castDirectUrl => _plan?.directUrl ?? '';
+
   /// 投屏到电视时显示的标题：剧名 + 当前集。
   String get castTitle {
     final name = detail.drama.title;
