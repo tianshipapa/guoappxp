@@ -163,6 +163,8 @@ var state = {
   libraryTab: 'history',
   libraryEditing: false,
   librarySelected: {},
+  // 收藏夹 / 播放记录搜索框的内容，切标签时不重置，方便同一关键词两边找。
+  libraryQuery: '',
   // 跨源聚合搜索得到的同名剧副本（按剧 id 缓存），供详情页「切换播放源」使用。
   crossPeers: {},
 };
@@ -310,6 +312,52 @@ function escapeHTML(value) {
   return String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, function (char) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
   });
+}
+
+// 全角 ASCII 折成半角、转小写、去掉空白与标点，规则与 App 侧
+// catalog_sort.dart 的 normalizedSearchText 一致，两端搜同样的词结果才一样。
+function normalizeSearchText(value) {
+  var text = String(value === undefined || value === null ? '' : value);
+  text = text.replace(/[\uFF01-\uFF5E]/g, function (char) {
+    return String.fromCharCode(char.charCodeAt(0) - 0xfee0);
+  });
+  return text.toLowerCase().replace(/[\s\u3000，。！？、：；·「」『』（）【】《》“”‘’.,!?:;\-_/()\[\]{}]+/g, '');
+}
+
+// 汉字取拼音首字母（霸道总裁 → bdzc）。首字母表在 pinyin.js，由
+// tool/gen_pinyin_table.dart 用 lpinyin 生成，和 App 侧同一份拼音数据；
+// 表没加载时返回空串，退化成只按原文匹配。
+function pinyinInitials(text) {
+  var table = window.DUANJU_PINYIN_INITIALS || '';
+  var letters = '';
+  for (var index = 0; index < text.length; index += 1) {
+    var code = text.charCodeAt(index);
+    if (code >= 0x4e00 && code <= 0x9fff && table) {
+      var letter = table.charAt(code - 0x4e00);
+      if (letter && letter !== '_') {
+        letters += letter;
+      }
+      continue;
+    }
+    if ((code >= 0x30 && code <= 0x39) || (code >= 0x61 && code <= 0x7a)) {
+      letters += text.charAt(index);
+    }
+  }
+  return letters;
+}
+
+// 标题匹配：原文子串优先，拼音首字母兜底。收藏夹 / 播放记录的搜索框都走这里，
+// 行为与 App 的 matchesTitle 对齐（`BDZC` 能搜到《霸道总裁》）。
+function matchesTitleQuery(title, query) {
+  var term = normalizeSearchText(query);
+  if (!term) {
+    return true;
+  }
+  var text = normalizeSearchText(title);
+  if (text.indexOf(term) !== -1) {
+    return true;
+  }
+  return pinyinInitials(text).indexOf(term) !== -1;
 }
 
 function api(payload) {
@@ -1880,9 +1928,24 @@ function libraryCardHTML(entry, tab) {
   );
 }
 
+// 当前标签页里「按搜索框过滤之后」的条目：列表页的显示、全选、计数都按它算。
+function libraryItems() {
+  var tab = state.libraryTab === 'favorites' ? 'favorites' : 'history';
+  var all = tab === 'history' ? state.library.history : state.library.favorites;
+  var query = state.libraryQuery || '';
+  if (!query) {
+    return all;
+  }
+  return all.filter(function (entry) {
+    return matchesTitleQuery(entry.title, query);
+  });
+}
+
 function renderFavoritesView() {
   var tab = state.libraryTab === 'favorites' ? 'favorites' : 'history';
-  var items = tab === 'history' ? state.library.history : state.library.favorites;
+  var all = tab === 'history' ? state.library.history : state.library.favorites;
+  var items = libraryItems();
+  var query = state.libraryQuery || '';
   var selectedKeys = Object.keys(state.librarySelected).filter(function (key) {
     return state.librarySelected[key];
   });
@@ -1896,12 +1959,28 @@ function renderFavoritesView() {
       '<button type="button" class="btn" id="lib-done">完成</button>' +
       '</div>'
     : '';
+  // 搜索框只在有内容时出现：空列表摆一个搜不到东西的输入框没有意义。
+  // 提示里提一句拼音首字母，否则没人会想到能这么用。
+  var filter = all.length
+    ? '<div class="lib-filter">' +
+      '<input type="search" id="lib-search" autocomplete="off"' +
+      ' placeholder="搜索' + (tab === 'history' ? '播放记录' : '收藏') + '（支持拼音首字母，如 BDZC）"' +
+      ' value="' + escapeHTML(query) + '" />' +
+      (query
+        ? '<span class="lib-count">匹配 ' + items.length + ' / ' + all.length + '</span>'
+        : '<span class="lib-count">共 ' + all.length + ' 条</span>') +
+      '</div>'
+    : '';
   var cards = items.map(function (entry) {
     return libraryCardHTML(entry, tab);
   }).join('');
   if (!cards) {
     cards = '<div class="empty">' +
-      (tab === 'history' ? '还没有播放记录，看过的剧会自动出现在这里。' : '还没有收藏，可在播放页点「收藏」加入。') +
+      (query
+        ? '没有匹配「' + escapeHTML(query) + '」的条目，换个词或清空搜索框看看。'
+        : tab === 'history'
+          ? '还没有播放记录，看过的剧会自动出现在这里。'
+          : '还没有收藏，可在播放页点「收藏」加入。') +
       '</div>';
   }
   var editButton = items.length
@@ -1916,8 +1995,9 @@ function renderFavoritesView() {
     '" data-tab="favorites">收藏（' + state.library.favorites.length + '）</button>' +
     '<span class="spacer"></span>' + editButton +
     '</div>' +
+    filter +
     toolbar +
-    '<div class="grid">' + cards + '</div>' +
+    '<div class="grid" id="lib-grid">' + cards + '</div>' +
     '</div>';
   bindLibraryView();
 }
@@ -1957,7 +2037,8 @@ function bindLibraryView() {
   var allBox = document.getElementById('lib-all');
   if (allBox) {
     allBox.addEventListener('change', function () {
-      var list = state.libraryTab === 'favorites' ? state.library.favorites : state.library.history;
+      // 全选只覆盖「当前过滤后能看到」的条目，别把搜不到的一起选上。
+      var list = libraryItems();
       state.librarySelected = {};
       if (allBox.checked) {
         list.forEach(function (entry) {
@@ -1965,6 +2046,24 @@ function bindLibraryView() {
         });
       }
       renderFavoritesView();
+    });
+  }
+  var search = document.getElementById('lib-search');
+  if (search) {
+    search.addEventListener('input', function () {
+      var caret = search.selectionStart;
+      state.libraryQuery = search.value;
+      renderFavoritesView();
+      // 整块重绘会丢掉焦点与光标位置，这里补回去，连续打字才不会断。
+      var again = document.getElementById('lib-search');
+      if (again) {
+        again.focus({ preventScroll: true });
+        try {
+          again.setSelectionRange(caret, caret);
+        } catch (error) {
+          // 个别浏览器不允许给 search 输入框设选区，忽略即可。
+        }
+      }
     });
   }
   Array.prototype.forEach.call(document.querySelectorAll('[data-check]'), function (box) {

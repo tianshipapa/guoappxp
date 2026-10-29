@@ -13,6 +13,8 @@ Flutter 多端独立短剧 / 影视应用
 - **新增设置「搜索用字母键盘」**（仅电视端）：开启后按确认键弹出内置字母键盘，按拼音首字母输入并实时列出匹配条目，选中即搜。默认走系统输入法。
 - **追剧、观看记录、站源搜索支持拼音首字母**：`霸道总裁` 用 `BDZC` 就能搜到（原文子串优先，拼音只做兜底）。
 - **首页按返回键不再直接退出**：先提示「再按一次返回退出应用」，2 秒内再按一次才退出；非首页或有子页面时仍是返回上一层。
+- **本地服务版（网页端）的收藏夹 / 播放记录支持拼音首字母搜索**：这两个列表的搜索框原先只能按剧名子串找，现在输入 `BDZC` 也能命中《霸道总裁》（原文优先、拼音兜底，规则与 App 侧 `matchesTitle` 一致）。首字母表由 `tool/gen_pinyin_table.dart` 用 lpinyin 生成成 `native/server/web/pinyin.js` 随包发出，网页端不需要联网取字典。
+- **本地服务版出包前会自动真跑一遍**：CI 的 `web` job 在 `build_web.py` 之后执行 `scripts/check_web.py`，把两个版本的二进制实际启动、逐个打接口，并校验内嵌网页与仓库里的 `native/server/web` **逐字节一致**、站源裁剪（红果鉴只有红果）确实生效。以后「编过但打不开」「改了前端忘了重新编译」这类问题会在发布前就红掉。
 
 ## 使用
 
@@ -166,9 +168,13 @@ python3 scripts/build_native.py --platform darwin  # 只编 macOS 核心（lipo 
 python3 scripts/build_web.py                     # 两版都构建
 python3 scripts/build_web.py --edition hongguojian
 python3 scripts/build_web.py --edition zhenguojian
+python3 scripts/check_web.py                     # 出包前自检：真跑起来打一遍接口
 ~~~
 
 产物在 `dist/android`、`dist/windows`、`dist/ios`、`dist/macos`、`dist/web`，红果版以 `hongguojian-` 开头，全站源版以 `zhenguojian-` 开头；本地服务版输出 `dist/web/hongguojian.zip`、`dist/web/zhenguojian.zip` 与合集 `dist/web/zhenguoweb.zip`。
+
+`scripts/check_web.py` 是本地服务版的冒烟自检：把编出来的二进制实际启动，检查主页能打开、内嵌网页与 `native/server/web` 逐字节一致、站源裁剪生效、接口不返回 500、非法请求打不挂服务。默认自动找 `build/web/*/*-linux`（`build_web.py` 的暂存产物），Windows 本机调试时用 `--binary` 指到 exe，`--slug` 指定版本。
+
 
 首次 Android 调试先编译对应架构核心，再运行：
 

@@ -32,7 +32,7 @@ body {
   border: 1px solid var(--line); color: var(--text); font-size: 13px; text-decoration: none;
 }
 .fav-btn:hover, .fav-btn.active { border-color: var(--accent); color: #fff; background: var(--accent); }
-.source, .search input, .search button {
+.source, .search input, .search button, .lib-filter input {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--line);
@@ -252,6 +252,12 @@ body {
   background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--muted);
 }
 .lib-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+/* 收藏夹 / 播放记录的搜索框：输入剧名子串，或拼音首字母（BDZC）。 */
+.lib-filter {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.lib-filter input { width: 320px; max-width: 100%; }
+.lib-count { font-size: 13px; color: var(--muted); }
 .lib-card { position: relative; }
 .lib-card .lib-link { position: relative; }
 .lib-remove {

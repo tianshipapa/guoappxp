@@ -345,6 +345,11 @@ jobs:
       # 随包带上 Windows 静态 ffmpeg.exe。产物：dist/web/zhenguoweb.zip
       - name: Build local service edition (红果鉴 / 真果鉴)
         run: python scripts/build_web.py
+      # 「编过 + 打进 zip」不等于能用：把两个二进制真跑起来打一遍接口，顺带校验
+      # 内嵌网页与仓库里的 native/server/web 逐字节一致、站源裁剪确实生效。
+      # 失败就让 web job 红掉，别等用户解压之后才发现打不开。
+      - name: 冒烟自检（真跑一次本地服务）
+        run: python scripts/check_web.py
       # 两个单独版本 zip 只随 zhenguoweb.zip 合集发布，不在 release 里单独出资产。
       - uses: actions/upload-artifact@v4
         with:
