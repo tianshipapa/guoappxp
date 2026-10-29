@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
+import 'option_grid.dart';
 import 'option_layout.dart';
 import 'playback_handle.dart';
 import 'player_gestures.dart';
@@ -828,21 +829,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     return centered.clamp(margin, limit) - centered;
   }
 
-  /// 弹层单个选项的高度，估算每列能放几项时按它算。
-  static const double _optionHeight = 36;
-
-  /// 单列时选项的最小宽度（文字自己撑开）。
-  static const double _optionMinWidth = 72;
-
-  /// 多列时每个格子的固定宽度，格宽固定才能精确算出网格总宽、判断要不要滚动。
-  static const double _optionCellWidth = 96;
-
-  /// 列与列之间的间距。
-  static const double _optionGap = 10;
-
-  /// 滚动条占的宽度，从网格右侧让出来，免得压在最后一列上。
-  static const double _optionScrollGutter = 8;
-
   /// 弹层下方要留给控制条的高度：工具条底距 10 + 高 48 + 弹层间距 6 + 余量。
   static const double _popupBottomReserve = 76;
 
@@ -856,7 +842,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     required String Function(T) label,
     required void Function(T) onSelected,
   }) {
-    final colors = Theme.of(context).colorScheme;
     // 弹层贴在控制条上方、控制条又贴着窗口底部，能用多高取决于控制条以上还剩
     // 多少空间。线路多的源一集可能几十上百条线路：先按高度分行、按行数分列，
     // 整屏放得下就照老样子显示；放不下就把列数钉死在宽度允许的最大值、改成按
@@ -864,128 +849,34 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     final height = space.maxHeight.isFinite ? space.maxHeight : 720.0;
     final width = space.maxWidth.isFinite ? space.maxWidth : 1280.0;
     final availableHeight = (height - _popupBottomReserve).clamp(
-      _optionHeight,
+      OptionGridMetrics.rowHeight,
       double.infinity,
     );
     final availableWidth = (width - _popupSideReserve).clamp(
-      _optionCellWidth,
+      OptionGridMetrics.cellWidth,
       double.infinity,
     );
     final plan = planOptionGrid(
       count: values.length,
       availableHeight: availableHeight,
       availableWidth: availableWidth,
-      rowHeight: _optionHeight,
-      columnWidth: _optionCellWidth,
-      gap: _optionGap,
+      rowHeight: OptionGridMetrics.rowHeight,
+      columnWidth: OptionGridMetrics.cellWidth,
+      gap: OptionGridMetrics.gap,
     );
-
-    Widget cell(T value, double? cellWidth) => InkWell(
-      borderRadius: BorderRadius.circular(8),
-      hoverColor: Colors.white.withValues(alpha: .14),
-      onTap: () => onSelected(value),
-      child: Container(
-        height: _optionHeight,
-        width: cellWidth,
-        constraints: BoxConstraints(minWidth: cellWidth ?? _optionMinWidth),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        alignment: Alignment.center,
-        child: Text(
-          label(value),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: value == selected ? FontWeight.w700 : FontWeight.w500,
-            color: value == selected ? colors.primary : Colors.white,
-          ),
-        ),
-      ),
-    );
-
-    final gridWidth =
-        plan.columns * _optionCellWidth +
-        (plan.columns > 1 ? (plan.columns - 1) * _optionGap : 0.0);
-
-    if (plan.singleColumn) {
-      return _OptionView(
-        width: _optionMinWidth,
-        child: IntrinsicWidth(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [for (final value in values) cell(value, null)],
-          ),
-        ),
-      );
-    }
-
-    if (plan.perColumn) {
-      final columns = optionColumns(values, maxRows: plan.rows);
-      return _OptionView(
-        width: gridWidth,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final (index, column) in columns.indexed) ...[
-              if (index > 0) const SizedBox(width: _optionGap),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final value in column) cell(value, _optionCellWidth),
-                ],
-              ),
-            ],
-          ],
-        ),
-      );
-    }
-
-    final grid = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final row in optionRows(values, columns: plan.columns))
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final (index, value) in row.indexed) ...[
-                if (index > 0) const SizedBox(width: _optionGap),
-                cell(value, _optionCellWidth),
-              ],
-            ],
-          ),
-      ],
-    );
-    if (!plan.scrolls) {
-      return _OptionView(width: gridWidth, child: grid);
-    }
     return _OptionView(
-      width: gridWidth + _optionScrollGutter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: gridWidth + _optionScrollGutter,
-          maxHeight: availableHeight,
-        ),
-        child: ScrollbarTheme(
-          // 弹层底色是恒定的深色，滚动条得跟着用浅色，否则亮主题下几乎看不见。
-          data: const ScrollbarThemeData(
-            thumbColor: WidgetStatePropertyAll<Color?>(Colors.white54),
-          ),
-          child: Scrollbar(
-            controller: _optionsScroll,
-            thumbVisibility: true,
-            thickness: 4,
-            radius: const Radius.circular(2),
-            child: SingleChildScrollView(
-              controller: _optionsScroll,
-              padding: const EdgeInsets.only(right: _optionScrollGutter),
-              child: grid,
-            ),
-          ),
-        ),
+      // 单列时宽度由文字撑开、算不准，按最小宽度估个够用的值即可。
+      width: plan.singleColumn
+          ? OptionGridMetrics.minWidth
+          : OptionGrid.widthOf(plan),
+      child: OptionGrid<T>(
+        plan: plan,
+        availableHeight: availableHeight,
+        values: values,
+        selected: selected,
+        label: label,
+        onSelected: onSelected,
+        scrollController: _optionsScroll,
       ),
     );
   }

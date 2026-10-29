@@ -57,18 +57,15 @@ void main() {
     expect(optionRows([1, 2], columns: 0), isEmpty);
   });
 
-  OptionGridPlan plan(
-    int count, {
-    double height = 300,
-    double width = 400,
-  }) => planOptionGrid(
-    count: count,
-    availableHeight: height,
-    availableWidth: width,
-    rowHeight: 36,
-    columnWidth: 96,
-    gap: 10,
-  );
+  OptionGridPlan plan(int count, {double height = 300, double width = 400}) =>
+      planOptionGrid(
+        count: count,
+        availableHeight: height,
+        availableWidth: width,
+        rowHeight: 36,
+        columnWidth: 96,
+        gap: 10,
+      );
 
   test('选项少时单列显示，不需要滚动', () {
     final result = plan(3);
