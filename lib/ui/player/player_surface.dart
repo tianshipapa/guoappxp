@@ -50,6 +50,9 @@ class PlayerSurface extends StatefulWidget {
 class _PlayerSurfaceState extends State<PlayerSurface> {
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final _links = {for (final popup in _Popup.values) popup: LayerLink()};
+
+  /// 弹层入口按钮，弹层比按钮宽时靠它的实际位置把弹层横向挪回播放器内。
+  final _targets = {for (final popup in _Popup.values) popup: GlobalKey()};
   Timer? _hideTimer;
   Timer? _pointerTimer;
   Timer? _closeTimer;
@@ -66,6 +69,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   double? _seekTarget;
   Timer? _seekTimer;
   Player? _bound;
+
+  /// 弹层里选项太多时用来竖向滚动，必须长期持有，滚动条要它才能定位。
+  final _optionsScroll = ScrollController();
   late final PlayerGestures _gestures = PlayerGestures(session: _session);
 
   PlaybackSession get _session => widget.handle.session;
@@ -127,6 +133,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     _tapTimer?.cancel();
     _streakTimer?.cancel();
     _gestures.dispose();
+    _optionsScroll.dispose();
     if (_holding) _session.endBoost();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
@@ -171,7 +178,11 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
 
   void _open(_Popup popup) {
     _closeTimer?.cancel();
-    if (_popup != popup) setState(() => _popup = popup);
+    if (_popup != popup) {
+      // 换一个弹层时回到顶部，免得沿用上一个弹层滚到一半的位置。
+      if (_optionsScroll.hasClients) _optionsScroll.jumpTo(0);
+      setState(() => _popup = popup);
+    }
     _show();
   }
 
@@ -303,114 +314,123 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         cursor: visible || _pointer
             ? MouseCursor.defer
             : SystemMouseCursors.none,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Video(
-              key: ValueKey(_session.player),
-              controller: widget.handle.video(_session.player),
-              controls: NoVideoControls,
-              pauseUponEnteringBackgroundMode: false,
-            ),
-            DanmakuOverlay(
-              controller: _session.danmaku,
-              aspectRatio: _session.aspectRatio,
-            ),
-            if (widget.touch)
-              LayoutBuilder(
-                builder: (context, constraints) => Listener(
-                  onPointerDown: (event) => _gestures.pointerDown(
-                    event,
-                    width: constraints.maxWidth,
-                    height: constraints.maxHeight,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Stack(
+            fit: StackFit.expand,
+            children: [
+              Video(
+                key: ValueKey(_session.player),
+                controller: widget.handle.video(_session.player),
+                controls: NoVideoControls,
+                pauseUponEnteringBackgroundMode: false,
+              ),
+              DanmakuOverlay(
+                controller: _session.danmaku,
+                aspectRatio: _session.aspectRatio,
+              ),
+              if (widget.touch)
+                LayoutBuilder(
+                  builder: (context, constraints) => Listener(
+                    onPointerDown: (event) => _gestures.pointerDown(
+                      event,
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                    ),
+                    onPointerMove: _gestures.pointerMove,
+                    onPointerUp: _gestures.pointerUp,
+                    onPointerCancel: _gestures.pointerCancel,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: (details) =>
+                          _tapUp(details, constraints.maxWidth),
+                      onLongPressStart: (_) => _pressStart(),
+                      onLongPressEnd: (_) => _pressEnd(),
+                      onLongPressCancel: _pressEnd,
+                    ),
                   ),
-                  onPointerMove: _gestures.pointerMove,
-                  onPointerUp: _gestures.pointerUp,
-                  onPointerCancel: _gestures.pointerCancel,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapUp: (details) => _tapUp(details, constraints.maxWidth),
-                    onLongPressStart: (_) => _pressStart(),
-                    onLongPressEnd: (_) => _pressEnd(),
-                    onLongPressCancel: _pressEnd,
+                )
+              else
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    widget.onSurface();
+                    _session.togglePlayback();
+                  },
+                  onDoubleTap: widget.onFullscreen,
+                ),
+              if (_session.ready && _session.stalled)
+                const IgnorePointer(
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (_session.ready && !state.playing) _pausedMark(),
+              if (_streak != 0) _streakBadge(),
+              AnimatedBuilder(
+                animation: _gestures,
+                builder: (context, _) => GestureHud(state: _gestures.hud),
+              ),
+              IgnorePointer(
+                ignoring: !visible,
+                child: ExcludeFocus(
+                  excluding: !visible,
+                  child: AnimatedOpacity(
+                    opacity: visible ? 1 : 0,
+                    duration: state.playing
+                        ? const Duration(milliseconds: 180)
+                        : Duration.zero,
+                    child: Listener(
+                      onPointerDown: widget.touch
+                          ? (_) => _scheduleHide()
+                          : null,
+                      child: _controls(context),
+                    ),
                   ),
                 ),
-              )
-            else
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  widget.onSurface();
-                  _session.togglePlayback();
-                },
-                onDoubleTap: widget.onFullscreen,
               ),
-            if (_session.ready && _session.stalled)
-              const IgnorePointer(
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            if (_session.ready && !state.playing) _pausedMark(),
-            if (_streak != 0) _streakBadge(),
-            AnimatedBuilder(
-              animation: _gestures,
-              builder: (context, _) => GestureHud(state: _gestures.hud),
-            ),
-            IgnorePointer(
-              ignoring: !visible,
-              child: ExcludeFocus(
-                excluding: !visible,
-                child: AnimatedOpacity(
-                  opacity: visible ? 1 : 0,
-                  duration: state.playing
-                      ? const Duration(milliseconds: 180)
-                      : Duration.zero,
-                  child: Listener(
-                    onPointerDown: widget.touch ? (_) => _scheduleHide() : null,
-                    child: _controls(context),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 80,
-              child: MouseRegion(
-                hitTestBehavior: HitTestBehavior.translucent,
-                onEnter: (_) => _overBar = true,
-                onHover: (_) => _show(),
-                onExit: (_) {
-                  _overBar = false;
-                  _scheduleHide();
-                },
-              ),
-            ),
-            if (popup != null && widget.touch)
-              GestureDetector(behavior: HitTestBehavior.opaque, onTap: _close),
-            if (popup != null)
               Positioned(
                 left: 0,
-                top: 0,
-                child: CompositedTransformFollower(
-                  link: _links[popup]!,
-                  showWhenUnlinked: false,
-                  targetAnchor: Alignment.topCenter,
-                  followerAnchor: Alignment.bottomCenter,
-                  offset: const Offset(0, -6),
-                  child: MouseRegion(
-                    onEnter: (_) => _closeTimer?.cancel(),
-                    onExit: (_) => _closeLater(),
-                    child: _popupBody(context, popup),
-                  ),
+                right: 0,
+                bottom: 0,
+                height: 80,
+                child: MouseRegion(
+                  hitTestBehavior: HitTestBehavior.translucent,
+                  onEnter: (_) => _overBar = true,
+                  onHover: (_) => _show(),
+                  onExit: (_) {
+                    _overBar = false;
+                    _scheduleHide();
+                  },
                 ),
               ),
-            _hint(),
-            if (_session.saveWarning case final warning?) _saveWarning(warning),
-            if (_session.loading) PlaybackLoading(session: _session),
-            if (_session.error case final error?)
-              PlaybackFailure(session: _session, error: error),
-          ],
+              if (popup != null && widget.touch)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _close,
+                ),
+              if (popup != null)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: CompositedTransformFollower(
+                    link: _links[popup]!,
+                    showWhenUnlinked: false,
+                    targetAnchor: Alignment.topCenter,
+                    followerAnchor: Alignment.bottomCenter,
+                    offset: const Offset(0, -6),
+                    child: MouseRegion(
+                      onEnter: (_) => _closeTimer?.cancel(),
+                      onExit: (_) => _closeLater(),
+                      child: _popupBody(context, popup, constraints),
+                    ),
+                  ),
+                ),
+              _hint(),
+              if (_session.saveWarning case final warning?)
+                _saveWarning(warning),
+              if (_session.loading) PlaybackLoading(session: _session),
+              if (_session.error case final error?)
+                PlaybackFailure(session: _session, error: error),
+            ],
+          ),
         ),
       );
     },
@@ -681,6 +701,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       _ => true,
     };
     return CompositedTransformTarget(
+      key: _targets[popup],
       link: _links[popup]!,
       child: MouseRegion(
         onEnter: enabled && _session.ready ? (_) => _open(popup) : null,
@@ -745,10 +766,14 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     ),
   );
 
-  Widget _popupBody(BuildContext context, _Popup popup) {
-    final body = switch (popup) {
-      _Popup.volume => _volume(context),
+  /// 弹层自身的左右内边距，算总宽时要加上。
+  static const double _popupPadding = 6;
+
+  Widget _popupBody(BuildContext context, _Popup popup, BoxConstraints space) {
+    final view = switch (popup) {
+      _Popup.volume => _OptionView(child: _volume(context), width: 44),
       _Popup.route => _options<int>(
+        space: space,
         values: [
           for (var route = 0; route < _session.routeCount; route += 1) route,
         ],
@@ -757,54 +782,118 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         onSelected: (value) => _change(() => _session.setRoute(value)),
       ),
       _Popup.speed => _options<double>(
+        space: space,
         values: playbackSpeeds.reversed.toList(),
         selected: _session.speed,
         label: (value) => '${value}x',
         onSelected: (value) => _change(() => _session.setSpeed(value)),
       ),
       _Popup.quality => _options<int>(
+        space: space,
         values: [..._session.qualities, 0],
         selected: _session.quality,
         label: (value) => value == 0 ? '自动' : '${value}P',
         onSelected: (value) => _change(() => _session.setQuality(value)),
       ),
     };
-    return Material(
-      color: const Color(0xE0141414),
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(padding: const EdgeInsets.all(6), child: body),
+    return Transform.translate(
+      offset: Offset(_popupShift(popup, view.width + _popupPadding * 2), 0),
+      child: Material(
+        color: const Color(0xE0141414),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(_popupPadding),
+          child: view.child,
+        ),
+      ),
     );
+  }
+
+  /// 弹层默认贴着按钮居中向上展开。线路多的时候弹层比按钮宽得多，靠右的按钮
+  /// 一展开就会顶出播放器右边被裁掉，这里按按钮的真实位置把弹层挪回可视区域。
+  double _popupShift(_Popup popup, double popupWidth) {
+    final host = context.findRenderObject();
+    final target = _targets[popup]?.currentContext?.findRenderObject();
+    if (host is! RenderBox || target is! RenderBox) return 0;
+    if (!host.hasSize || !target.hasSize) return 0;
+    final hostWidth = host.size.width;
+    final center = target
+        .localToGlobal(Offset(target.size.width / 2, 0), ancestor: host)
+        .dx;
+    final centered = center - popupWidth / 2;
+    const margin = 8.0;
+    final limit = hostWidth - margin - popupWidth;
+    // 弹层比窗口还宽时无处可挪，直接居中。
+    if (limit <= margin) return (hostWidth - popupWidth) / 2 - centered;
+    return centered.clamp(margin, limit) - centered;
   }
 
   /// 弹层单个选项的高度，估算每列能放几项时按它算。
   static const double _optionHeight = 36;
 
-  Widget _options<T>({
+  /// 单列时选项的最小宽度（文字自己撑开）。
+  static const double _optionMinWidth = 72;
+
+  /// 多列时每个格子的固定宽度，格宽固定才能精确算出网格总宽、判断要不要滚动。
+  static const double _optionCellWidth = 96;
+
+  /// 列与列之间的间距。
+  static const double _optionGap = 10;
+
+  /// 滚动条占的宽度，从网格右侧让出来，免得压在最后一列上。
+  static const double _optionScrollGutter = 8;
+
+  /// 弹层下方要留给控制条的高度：工具条底距 10 + 高 48 + 弹层间距 6 + 余量。
+  static const double _popupBottomReserve = 76;
+
+  /// 弹层左右留白 + 自身内边距。
+  static const double _popupSideReserve = 36;
+
+  _OptionView _options<T>({
+    required BoxConstraints space,
     required List<T> values,
     required T selected,
     required String Function(T) label,
     required void Function(T) onSelected,
   }) {
     final colors = Theme.of(context).colorScheme;
-    // 弹层贴在控制条上方，控制条又贴着窗口底部，所以可用高度只有窗口高度减去
-    // 控制条和留白。线路多的源一集可能几十条线路，单列会顶穿窗口上沿（超出
-    // 屏幕的部分直接看不到），因此按可用高度算出每列行数，超出的排到右侧成多列。
-    final rows = ((MediaQuery.sizeOf(context).height - 180) / _optionHeight)
-        .floor()
-        .clamp(3, 9);
-    final columns = optionColumns(values, maxRows: rows);
-    final multi = columns.length > 1;
-    Widget cell(T value) => InkWell(
+    // 弹层贴在控制条上方、控制条又贴着窗口底部，能用多高取决于控制条以上还剩
+    // 多少空间。线路多的源一集可能几十上百条线路：先按高度分行、按行数分列，
+    // 整屏放得下就照老样子显示；放不下就把列数钉死在宽度允许的最大值、改成按
+    // 行填充，再套竖向滚动，保证每一条都点得到。
+    final height = space.maxHeight.isFinite ? space.maxHeight : 720.0;
+    final width = space.maxWidth.isFinite ? space.maxWidth : 1280.0;
+    final availableHeight = (height - _popupBottomReserve).clamp(
+      _optionHeight,
+      double.infinity,
+    );
+    final availableWidth = (width - _popupSideReserve).clamp(
+      _optionCellWidth,
+      double.infinity,
+    );
+    final plan = planOptionGrid(
+      count: values.length,
+      availableHeight: availableHeight,
+      availableWidth: availableWidth,
+      rowHeight: _optionHeight,
+      columnWidth: _optionCellWidth,
+      gap: _optionGap,
+    );
+
+    Widget cell(T value, double? cellWidth) => InkWell(
       borderRadius: BorderRadius.circular(8),
       hoverColor: Colors.white.withValues(alpha: .14),
       onTap: () => onSelected(value),
       child: Container(
         height: _optionHeight,
-        constraints: BoxConstraints(minWidth: multi ? 88 : 72),
+        width: cellWidth,
+        constraints: BoxConstraints(minWidth: cellWidth ?? _optionMinWidth),
         padding: const EdgeInsets.symmetric(horizontal: 14),
         alignment: Alignment.center,
         child: Text(
           label(value),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 14,
             fontWeight: value == selected ? FontWeight.w700 : FontWeight.w500,
@@ -813,31 +902,90 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         ),
       ),
     );
-    if (!multi) {
-      return IntrinsicWidth(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [for (final value in values) cell(value)],
+
+    final gridWidth =
+        plan.columns * _optionCellWidth +
+        (plan.columns > 1 ? (plan.columns - 1) * _optionGap : 0.0);
+
+    if (plan.singleColumn) {
+      return _OptionView(
+        width: _optionMinWidth,
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [for (final value in values) cell(value, null)],
+          ),
         ),
       );
     }
-    return IntrinsicWidth(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final (index, column) in columns.indexed) ...[
-            if (index > 0) const SizedBox(width: 10),
-            IntrinsicWidth(
-              child: Column(
+
+    if (plan.perColumn) {
+      final columns = optionColumns(values, maxRows: plan.rows);
+      return _OptionView(
+        width: gridWidth,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final (index, column) in columns.indexed) ...[
+              if (index > 0) const SizedBox(width: _optionGap),
+              Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [for (final value in column) cell(value)],
+                children: [
+                  for (final value in column) cell(value, _optionCellWidth),
+                ],
               ),
-            ),
+            ],
           ],
-        ],
+        ),
+      );
+    }
+
+    final grid = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final row in optionRows(values, columns: plan.columns))
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (index, value) in row.indexed) ...[
+                if (index > 0) const SizedBox(width: _optionGap),
+                cell(value, _optionCellWidth),
+              ],
+            ],
+          ),
+      ],
+    );
+    if (!plan.scrolls) {
+      return _OptionView(width: gridWidth, child: grid);
+    }
+    return _OptionView(
+      width: gridWidth + _optionScrollGutter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: gridWidth + _optionScrollGutter,
+          maxHeight: availableHeight,
+        ),
+        child: ScrollbarTheme(
+          // 弹层底色是恒定的深色，滚动条得跟着用浅色，否则亮主题下几乎看不见。
+          data: const ScrollbarThemeData(
+            thumbColor: WidgetStatePropertyAll<Color?>(Colors.white54),
+          ),
+          child: Scrollbar(
+            controller: _optionsScroll,
+            thumbVisibility: true,
+            thickness: 4,
+            radius: const Radius.circular(2),
+            child: SingleChildScrollView(
+              controller: _optionsScroll,
+              padding: const EdgeInsets.only(right: _optionScrollGutter),
+              child: grid,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1128,4 +1276,11 @@ class _HoverScaleState extends State<_HoverScale> {
       child: widget.child,
     ),
   );
+}
+
+/// 弹层内容 + 它占的宽度，弹层据此判断要不要横向挪回播放器内。
+class _OptionView {
+  const _OptionView({required this.child, required this.width});
+  final Widget child;
+  final double width;
 }
