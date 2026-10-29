@@ -163,6 +163,7 @@ class PlaybackSession extends ChangeNotifier {
   double _openedAt = 0;
   double _speed = 1;
   int _quality = 0;
+  int _route = 0;
   bool _danmakuEnabled = true;
   bool _adBlock = true;
   double _aspectRatio = 9 / 16;
@@ -201,6 +202,10 @@ class PlaybackSession extends ChangeNotifier {
   int get routeIndex => _plan?.routeIndex ?? 0;
   int get routeCount => _plan?.routeCount ?? 1;
   bool get canSwitchRoute => _plan != null && _plan!.routeCount > 1;
+
+  /// 已选中的线路序号（0 起）。切集、换清晰度都沿用它，只有这一集没有这条
+  /// 线路时才会改用别的线路，避免每集都跳回线路 1。
+  int get preferredRoute => _route;
 
   /// 投屏用的播放地址：指向核心的本机流服务，投屏时要把主机换成手机内网地址。
   String get streamUrl => _plan?.url ?? '';
@@ -345,6 +350,7 @@ class PlaybackSession extends ChangeNotifier {
       quality: _quality,
       online: _online,
       adBlock: _adBlock,
+      route: _route,
     );
   }
 
@@ -514,9 +520,12 @@ class PlaybackSession extends ChangeNotifier {
             quality: _quality,
             online: _online,
             adBlock: _adBlock,
+            route: _route,
           )
         : null;
     _preloader.clear();
+    // 切集、换清晰度都沿用玩家选中的线路；手动切线路时以新线路为准。
+    final preferred = switchRoute ?? _route;
     final ticket = ++_generation;
     _seekSequence++;
     danmaku.setPlan(null);
@@ -575,6 +584,7 @@ class PlaybackSession extends ChangeNotifier {
               quality: _quality,
               online: _online,
               adBlock: _adBlock,
+              route: preferred,
             );
       if (prepared == null) return;
       final plan = prepared;
@@ -589,6 +599,18 @@ class PlaybackSession extends ChangeNotifier {
         _plan = plan;
         installed = true;
         _acceptErrors = true;
+        // 手动切线路或自动换备线后，以实际生效的线路为准，后面的集数跟着走；
+        // 正常切集时若这一集没有原来的线路，只记一笔日志、不改已选线路，
+        // 下一集有这条线路时仍然回到它。
+        if (switchRoute != null ||
+            recovery == PlaybackRecoveryAction.alternative) {
+          _route = plan.routeIndex;
+        } else if (preferred > 0 && plan.routeIndex != preferred) {
+          DiaryService.add(
+            '[Play] 第 ${detail.episodes[index].number} 集没有线路 ${preferred + 1}，'
+            '改用线路 ${plan.routeIndex + 1}/${plan.routeCount}',
+          );
+        }
         await player.open(
           Media(
             plan.url,
@@ -695,6 +717,7 @@ class PlaybackSession extends ChangeNotifier {
       quality: _quality,
       online: _online,
       adBlock: _adBlock,
+      route: _route,
     );
     if (plan == null) {
       _standbyIndex = -1;

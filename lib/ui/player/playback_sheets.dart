@@ -144,7 +144,7 @@ class PlaybackSettings extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '当前第 ${session.routeIndex + 1} / ${session.routeCount} 条，切换后从原进度继续',
+                    '当前第 ${session.routeIndex + 1} / ${session.routeCount} 条，切换后从原进度继续，后续集数沿用这条线路',
                     style: label,
                   ),
                   const SizedBox(height: 8),

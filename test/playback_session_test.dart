@@ -15,8 +15,11 @@ class _PlaybackRepository extends FakeRepository {
   final released = <String>[];
   final preloaded = <int>[];
   final routes = <int>[];
+  final resolvedRoutes = <int>[];
+  final preloadedRoutes = <int>[];
   var fallbacks = 0;
   var resolveFailure = '';
+  var routeLimit = 2;
   var _sessions = 0;
 
   PlaybackPlan _plan({int route = 0}) {
@@ -24,8 +27,8 @@ class _PlaybackRepository extends FakeRepository {
     return PlaybackPlan(
       url: 'https://media.test/$_sessions.m3u8',
       session: 'session-$_sessions',
-      routeIndex: route,
-      routeCount: 2,
+      routeIndex: route < routeLimit ? route : 0,
+      routeCount: routeLimit,
       quality: 1080,
       qualities: const [1080, 720],
     );
@@ -37,10 +40,12 @@ class _PlaybackRepository extends FakeRepository {
     Episode episode, {
     int quality = 0,
     bool adBlock = true,
+    int route = 0,
   }) async {
     resolved.add((episode: episode.number, quality: quality));
+    resolvedRoutes.add(route);
     if (resolveFailure.isNotEmpty) throw AppFailure(resolveFailure);
-    return _plan();
+    return _plan(route: route);
   }
 
   @override
@@ -62,9 +67,11 @@ class _PlaybackRepository extends FakeRepository {
     int quality = 0,
     bool online = false,
     bool adBlock = true,
+    int route = 0,
   }) async {
     preloaded.add(episode.number);
-    return _plan();
+    preloadedRoutes.add(route);
+    return _plan(route: route);
   }
 
   @override
@@ -221,6 +228,64 @@ void main() {
     expect(session.routeIndex, 1);
     expect(session.ready, isTrue);
     expect(repository.released, contains('session-1'));
+  });
+
+  test('the selected route carries over to the next episode', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+
+    player.progress(_seconds(40), duration: _seconds(100));
+    await session.setRoute(1);
+    expect(session.routeIndex, 1);
+
+    await session.next();
+    expect(session.index, 1);
+    expect(session.routeIndex, 1);
+    expect(session.preferredRoute, 1);
+    if (repository.resolved.last.episode == 2) {
+      expect(repository.resolvedRoutes.last, 1);
+    }
+  });
+
+  test('an episode without the selected route falls back and later returns'
+      ' to it', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+
+    player.progress(_seconds(40), duration: _seconds(100));
+    await session.setRoute(1);
+    expect(session.routeIndex, 1);
+
+    repository.routeLimit = 1;
+    await session.next();
+    expect(session.routeIndex, 0);
+    expect(session.preferredRoute, 1);
+
+    repository.routeLimit = 2;
+    await session.next();
+    if (repository.resolved.last.episode == 3) {
+      expect(repository.resolvedRoutes.last, 1);
+    }
+    expect(session.routeIndex, 1);
+  });
+
+  test('an automatic route switch is kept for later episodes', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+
+    player.progress(_seconds(20), duration: _seconds(100));
+    player.fail('connection reset');
+    await Future<void>.delayed(const Duration(milliseconds: 1000));
+    await pumpEventQueue();
+    expect(session.routeIndex, 1);
+    expect(session.preferredRoute, 1);
+
+    await session.next();
+    expect(session.index, 1);
+    expect(session.routeIndex, 1);
   });
 
   test('speed changes are saved and applied unless boosting', () async {
