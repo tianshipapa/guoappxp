@@ -411,6 +411,13 @@ class LocalStore extends ChangeNotifier {
   bool get sideBarExpanded => preferences.getBool('sideBarExpanded') ?? true;
   bool get playerWide => preferences.getBool('playerWide') ?? false;
 
+  /// 电视端搜索框是否用内置字母键盘（按拼音首字母搜）而不是系统输入法。
+  ///
+  /// 默认关闭：大多数电视有可用的系统输入法，字母键盘只是小米这类按确认键
+  /// 唤不出输入法时的兜底。
+  bool get televisionKeyboard =>
+      preferences.getBool('televisionKeyboard') ?? false;
+
   String get source {
     if (locked) return '';
     final value = _string(_key('source')) ?? '';
@@ -578,6 +585,10 @@ class LocalStore extends ChangeNotifier {
   });
   Future<void> setPlayerWide(bool value) => _queue(() async {
     await preferences.setBool('playerWide', value);
+    _notify();
+  });
+  Future<void> setTelevisionKeyboard(bool value) => _queue(() async {
+    await preferences.setBool('televisionKeyboard', value);
     _notify();
   });
   Future<void> setPlaybackPreferences(PlaybackPreferences value) {

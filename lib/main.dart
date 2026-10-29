@@ -14,6 +14,9 @@ import 'local_store.dart';
 import 'ui/app.dart';
 import 'ui/theme/app_theme.dart';
 
+/// 桌面端窗口的最小尺寸：再小的话播放器控制条和线路弹层会挤在一起。
+const desktopMinimumSize = Size(960, 640);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isAndroid) {
@@ -22,6 +25,21 @@ Future<void> main() async {
   }
   if (Platform.isWindows) {
     await windowManager.ensureInitialized();
+  }
+  if (Platform.isMacOS) {
+    // macOS 的窗口默认由 MainFlutterWindow 从 nib 里带出来，但 window_manager
+    // 需要在首帧前初始化好，否则最小尺寸和「启动即显示」都不生效。
+    await windowManager.ensureInitialized();
+    try {
+      await windowManager.waitUntilReadyToShow(
+        const WindowOptions(
+          size: Size(1280, 800),
+          minimumSize: desktopMinimumSize,
+          center: true,
+        ),
+        () async => windowManager.show(),
+      );
+    } catch (_) {}
   }
   MediaKit.ensureInitialized();
   final device = await AppDevice.detect();

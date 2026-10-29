@@ -10,3 +10,4 @@ analyzer:
     - ios/**
     - legacy_ui/**
     - legacy_test/**
+    - macos/**

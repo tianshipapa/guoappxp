@@ -234,6 +234,12 @@ class _SearchPageState extends State<SearchPage> {
       autofocus: widget.query.isEmpty,
       onChanged: _changed,
       onSubmitted: _submit,
+      letterKeyboard: widget.store.televisionKeyboard,
+      // 字母键盘的实时候选来自当前站源的搜索建议；「全部源」模式下候选只覆盖
+      // 单一站源，反而误导，所以只在单站源搜索时给出。
+      matches: !_allSources && widget.source.searchSuggestions
+          ? _repository.suggestions
+          : null,
     );
     if (television) {
       return Scaffold(

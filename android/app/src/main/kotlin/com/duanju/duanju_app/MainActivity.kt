@@ -42,6 +42,9 @@ class MainActivity : FlutterActivity() {
     private var deviceChannel: MethodChannel? = null
     private var castChannel: MethodChannel? = null
     private var cast: DlnaCast? = null
+    // 电视端搜索框的系统输入法桥：Flutter 的 TextField 在部分电视（小米等）
+    // 上按确认键唤不出输入法，改成挂一个 1x1 的隐藏 EditText 来拉起键盘。
+    private var textInput: TextInputBridge? = null
     private var televisionMode = false
     private var orientationListener: OrientationEventListener? = null
 
@@ -394,6 +397,8 @@ class MainActivity : FlutterActivity() {
                     }
                 }
             }
+        // 电视端搜索框的系统输入法桥（见 TextInputBridge）。
+        textInput = TextInputBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         // 投屏（DLNA）：Flutter 侧只负责选设备与按钮，搜索 / SOAP 下发都在
         // DlnaCast 的单线程里跑，网络耗时不能占主线程。
         val dlna = DlnaCast(applicationContext)
@@ -511,6 +516,8 @@ class MainActivity : FlutterActivity() {
         orientationListener = null
         deviceChannel?.setMethodCallHandler(null)
         deviceChannel = null
+        textInput?.dispose()
+        textInput = null
         castChannel?.setMethodCallHandler(null)
         castChannel = null
         cast?.close()

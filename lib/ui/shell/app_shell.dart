@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -56,6 +58,9 @@ class _AppShellState extends State<AppShell> {
   var _tab = AppTab.explore;
   var _headerFocused = false;
   FocusNode? _lastFocus;
+
+  /// 首页「再按一次返回退出应用」的倒计时窗口；非空时下一次返回键才真正退出。
+  Timer? _exitWindow;
   DownloadOverview? _downloads;
   DownloadConverter? _converter;
   FollowUpdater? _followUpdater;
@@ -94,6 +99,7 @@ class _AppShellState extends State<AppShell> {
     _followEntry.dispose();
     _mineEntry.dispose();
     _header.dispose();
+    _exitWindow?.cancel();
     _converter?.dispose();
     _downloads?.dispose();
     _followUpdater?.dispose();
@@ -118,9 +124,30 @@ class _AppShellState extends State<AppShell> {
     final navigator = _navigator;
     if (navigator != null && await navigator.maybePop()) return;
     if (!mounted) return;
+    final television = AppScope.of(context).television;
+    // 已经在首页（且电视端焦点在顶栏）时不再「退出就完事」：先给一次提示，
+    // 2 秒内再按一次才真的退出，避免遥控器按错一下就关掉应用。
+    if (_tab == AppTab.explore && (!television || _headerFocused)) {
+      _armExit();
+      return;
+    }
     if (_tab == AppTab.explore) _explore.currentState?.refresh();
     _select(AppTab.explore);
-    if (AppScope.of(context).television) _tabFocus.first.requestFocus();
+    if (television) _tabFocus.first.requestFocus();
+  }
+
+  void _armExit() {
+    const window = Duration(seconds: 2);
+    setState(() {
+      _exitWindow = Timer(window, () {
+        if (mounted) setState(() => _exitWindow = null);
+      });
+    });
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('再按一次返回退出应用'), duration: window),
+      );
   }
 
   Widget _root(AppTab tab) => switch (tab) {
@@ -166,7 +193,10 @@ class _AppShellState extends State<AppShell> {
     final covered = _navigator?.canPop() ?? false;
     return PopScope(
       canPop:
-          _tab == AppTab.explore && !covered && (!television || _headerFocused),
+          _exitWindow != null &&
+          _tab == AppTab.explore &&
+          !covered &&
+          (!television || _headerFocused),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _back();
       },

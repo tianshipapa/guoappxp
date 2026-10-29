@@ -70,8 +70,27 @@ elif options.platform == 'windows':
     build('windows', 'amd64', compiler, root / 'windows' / 'runner' / 'duanju_core.dll',
           {'CGO_LDFLAGS': '-static-libgcc'})
 else:
+    # macOS：编成静态库（c-archive）再由 DuanjuCore pod 链进主程序，
+    # Dart 侧用 DynamicLibrary.process() 取符号（和 iOS 同一套做法）。
+    # 同时编 arm64 与 x86_64 两片再 lipo 成通用库，Apple 芯片和 Intel 都能跑。
+    if platform.system() != 'Darwin':
+        raise SystemExit('macOS 核心需要在 macOS 上构建。')
     compiler = shutil.which('clang')
     if not compiler:
         raise SystemExit('需要安装 Xcode Command Line Tools。')
-    build('darwin', 'arm64' if platform.machine() == 'arm64' else 'amd64', compiler,
-          root / 'native' / 'build' / 'darwin' / 'libduanju_core.dylib')
+    output = root / 'macos' / 'DuanjuCore' / 'libDuanjuCore.a'
+    slices = []
+    for architecture, triple in [('arm64', 'arm64-apple-macos12.0'),
+                                 ('amd64', 'x86_64-apple-macos12.0')]:
+        library = root / 'native' / 'build' / 'macos' / architecture / 'libDuanjuCore.a'
+        library.parent.mkdir(parents=True, exist_ok=True)
+        print('Building ' + str(library.relative_to(root)), flush=True)
+        build_env = environment | {'GOOS': 'darwin', 'GOARCH': architecture, 'CC': str(compiler),
+                                   'CGO_CFLAGS': '-target ' + triple,
+                                   'CGO_LDFLAGS': '-target ' + triple}
+        subprocess.run([go, 'build', '-trimpath', '-buildmode=c-archive',
+                        '-ldflags=' + variant.linker_flags, '-o', str(library), './bridge'],
+                       cwd=root / 'native', env=build_env, check=True)
+        slices.append(str(library))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['lipo', '-create', *slices, '-output', str(output)], check=True)

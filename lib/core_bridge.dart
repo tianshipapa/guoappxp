@@ -33,7 +33,8 @@ String _nativeRequest(String body) {
     library = DynamicLibrary.open(
       path.join(path.dirname(Platform.resolvedExecutable), 'duanju_core.dll'),
     );
-  } else if (Platform.isIOS) {
+  } else if (Platform.isIOS || Platform.isMacOS) {
+    // iOS / macOS 的核心是以静态库链进主程序的，符号直接从进程里取。
     library = DynamicLibrary.process();
   } else {
     throw UnsupportedError('当前首版支持 Android 手机和 Windows 电脑');
@@ -76,7 +77,7 @@ void installStderrLog(String logPath) {
       library = DynamicLibrary.open(
         path.join(path.dirname(Platform.resolvedExecutable), 'duanju_core.dll'),
       );
-    } else if (Platform.isIOS) {
+    } else if (Platform.isIOS || Platform.isMacOS) {
       library = DynamicLibrary.process();
     } else {
       return;

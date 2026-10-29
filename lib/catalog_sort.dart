@@ -1,3 +1,5 @@
+import 'package:lpinyin/lpinyin.dart';
+
 import 'models.dart';
 
 enum CatalogSort {
@@ -61,6 +63,22 @@ String normalizedSearchText(String text) {
     RegExp(r'[\s\u3000，。！？、：；·「」『』（）【】《》“”‘’.,!?:;\-_/()\[\]{}]+'),
     '',
   );
+}
+
+/// 标题匹配：先按归一化后的原文子串匹配，再退一步按拼音首字母匹配。
+///
+/// 电视遥控器打字极慢，字母键盘只能给到 A-Z，所以「霸道总裁」要能用 `BDZC`
+/// 搜到；追剧和观看记录列表的搜索框同样走这里，保证两处行为一致。
+bool matchesTitle(String title, String query) {
+  final term = normalizedSearchText(query);
+  if (term.isEmpty) return true;
+  final text = normalizedSearchText(title);
+  if (text.contains(term)) return true;
+  try {
+    return PinyinHelper.getShortPinyin(text).toLowerCase().contains(term);
+  } on PinyinException {
+    return false;
+  }
 }
 
 bool matchesDramaQuery(Drama drama, String query) {
