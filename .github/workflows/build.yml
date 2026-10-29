@@ -19,8 +19,13 @@ on:
 permissions:
   contents: read
 
+# 同一个分支只留一个运行：以前没开 cancel-in-progress，手动重跑时会排在旧运行
+# 后面变成 pending（旧运行若正卡在等 macOS runner，新运行连 job 都不会出现，
+# 看上去就像「不分配 runner」）。取消旧运行是安全的：发布用的 prepare 会检查
+# 同名 Release/tag，republish 默认勾选即覆盖重发。
 concurrency:
   group: app-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   GOPROXY: https://proxy.golang.org,direct

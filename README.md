@@ -106,6 +106,18 @@ Android 签名优先使用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_
 3. 额度不够时：追加信用卡并提高 spending limit，或改用自托管 macOS runner（不计费）；
 4. 只想先出 Android / Windows / 网页版：手动运行时**取消勾选 `with_ios` 与 `with_macos`**，Release 会照常发布，只缺 IPA 与 dmg。
 
+##### 「iOS / macOS 没分到 runner」要看是哪一种
+
+这四个字下面其实是三种完全不同的状态，处理方式也不一样：
+
+| 运行页面看到的样子 | 真正的原因 | 怎么处理 |
+| --- | --- | --- |
+| job 灰掉，顶部黄色横幅写「This job was not started because recent account payments have failed or your spending limit needs to be increased」 | **macOS 分钟额度用完 / spending limit 为 0**。macOS 按 10 倍计费，Free 账号 2000 分钟折合约 200 分钟，一次完整 iOS 出包就能吃掉 200～300 分钟 | 到 `Settings → Billing and plans` 里追加支付方式并调高 spending limit；额度不够就先取消勾选 `with_ios` / `with_macos` |
+| job 显示 skipped（灰色，没有日志） | ① `with_ios` / `with_macos` 没勾；② 前置的 `prepare` job 失败（这两个 job 都 `needs: prepare`） | 勾选后重跑；先点开 `prepare` 看它为什么红 |
+| 一直「Waiting for a runner to pick up this job」，或整条运行停在 pending 排队 | 已经排进 macOS 队列，等 GitHub 分机器（macOS 池高峰时常见）；或者同一分支上有旧运行还没结束，新运行得排在它后面 | 工作流已开 `cancel-in-progress`，重新触发会直接取消旧运行、不必等它跑完；纯排队的话等几分钟再看 |
+
+另外注意：`ios` 与 `macos` 两个 job 都是 `continue-on-error: true`，它们失败或被跳过**不会**让整条运行变红，所以「工作流成功了但没 IPA」是正常现象，别把它当成「没跑」。
+
 为降低开销，iOS 与 macOS 各自的两个版本都合在同一个 macOS job 里顺序构建（环境初始化、`pub get`、`pod install` 只付一次，Pods 有缓存），并且这两个 job 失败或被跳过都**不会**拦住其它平台的发布——Release 说明里会写明本次未包含 IPA / dmg。
 
 #### iOS / macOS 的 ffmpeg 原生框架，以及 `FFmpegKitConfig.h` file not found
