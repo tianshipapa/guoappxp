@@ -7,7 +7,11 @@ class SourceSite {
   final String id;
   final String name;
   final String description;
-  bool get onlineSearch => pagedSearch;
+  bool get onlineSearch => pagedSearch || duanjuOnlineSearch;
+
+  /// 短剧家族源都支持关键词在线搜索（与 Go 侧 duanjuSourceSpec.Searcher 对齐）。
+  bool get duanjuOnlineSearch => _duanjuIds.contains(id);
+
   bool get pagedSearch =>
       id == 'hongguo' ||
       id == 'huangju' ||
@@ -17,7 +21,12 @@ class SourceSite {
       id == 'guipian' ||
       id == 'hanxiaoquan' ||
       id == 'ikanbot' ||
-      id == 'a123';
+      id == 'a123' ||
+      duanjuPaged;
+
+  /// 短剧家族里支持翻页的源（与 Go 侧 duanjuSourceSpec.Paged 对齐）。
+  bool get duanjuPaged => _duanjuPagedIds.contains(id);
+
   bool get searchSuggestions => id == 'hongguo';
   String get groupId => switch (id) {
     'huangguo-video' || 'huangguoai' || 'cloudfront' => 'huangguo',
@@ -43,6 +52,45 @@ class SourceSite {
   static const ikanbot = SourceSite('ikanbot', '爱看机器人', '电影 · 剧集 · 多线路搜索');
   static const a123 = SourceSite('a123', 'A123', '电影 · 连续剧 · 综艺 · 动漫 · 多线路');
 
+  /// 短剧家族内置源（全剧视界可用），与 Go 侧 duanjuProviderCatalog 对齐。
+  static const duanjuValues = [
+    SourceSite('yaguo', '芽果', '星芽短剧 · 登录接口'),
+    SourceSite('maoguo', '猫果', '七猫短剧 · 签名接口'),
+    SourceSite('fanguo', '饭果', '西饭短剧 · 搜索接口'),
+    SourceSite('guanguo', '观果', '围观短剧 · 分类接口'),
+    SourceSite('heguo', '河果', '河马剧场 · 网页接口'),
+    SourceSite('xingguo', '星果', '星星短剧 · 连载接口'),
+    SourceSite('huaguo', '花果', '花生短剧 · 网页目录'),
+    SourceSite('niuguo', '牛果', '牛牛短剧 · 分类接口'),
+    SourceSite('wangguo', '网果', '短剧网站 · 网页目录'),
+    SourceSite('faguo', '发果', '168 短剧 · 网页目录'),
+    SourceSite('wuguo', '伍果', '五五短剧 · 网页目录'),
+  ];
+
+  static const _duanjuIds = {
+    'yaguo',
+    'maoguo',
+    'fanguo',
+    'guanguo',
+    'heguo',
+    'xingguo',
+    'huaguo',
+    'niuguo',
+    'wangguo',
+    'faguo',
+    'wuguo',
+  };
+
+  static const _duanjuPagedIds = {
+    'yaguo',
+    'guanguo',
+    'huaguo',
+    'niuguo',
+    'wangguo',
+    'faguo',
+    'wuguo',
+  };
+
   static const primaryValues = [
     hongguo,
     a123,
@@ -50,6 +98,7 @@ class SourceSite {
     hanxiaoquan,
     guipian,
     sorani,
+    ...duanjuValues,
   ];
 
   static const restrictedValues = [
