@@ -55,6 +55,14 @@ func validNativeCategory(source, category string) bool {
 			}
 		}
 		return hongguoTagPattern.MatchString(category)
+	case sourceHongguoNew:
+		// 红果新只开放三个基础分类，标签页仍归红果。
+		for _, genre := range hongguoAppGenres {
+			if category == genre.key {
+				return true
+			}
+		}
+		return false
 	case sourceHuangguoAI:
 		for _, entry := range nativeAICategories {
 			if category == entry.ID {
@@ -98,6 +106,11 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 			all = append(all, nativeCategory{ID: genre.key, Name: genre.name})
 		}
 		return engine.hongguoCategories(ctx, all, force), nil
+	case sourceHongguoNew:
+		for _, genre := range hongguoAppGenres {
+			all = append(all, nativeCategory{ID: genre.key, Name: genre.name})
+		}
+		return all, nil
 	case sourceHuangguoAI:
 		return append(all, nativeAICategories...), nil
 	case sourceHuangdou:

@@ -33,6 +33,8 @@ func (d *Downloader) providerBaseURL(source string) string {
 		configured, fallback = d.cfg.HuangdouURL, huangdouBaseURL
 	case sourceHongguo:
 		configured, fallback = d.cfg.HongguoURL, hongguoBaseURL
+	case sourceHongguoNew:
+		configured, fallback = d.cfg.HongguoURL, hongguoBaseURL
 	case sourceHuangju:
 		configured, fallback = d.cfg.HuangjuURL, huangjuBaseURL
 	case sourceYeguo:
@@ -161,6 +163,14 @@ func (d *Downloader) resolveProviderMedia(ctx context.Context, task Task) (provi
 	}
 	if isDuanjuProviderSource(chapter.Source) {
 		return d.resolveDuanjuMedia(ctx, task)
+	}
+	if chapter.Source == sourceHongguoNew || strings.HasPrefix(chapter.VideoURL, "hongguoxin-cenc://") {
+		// 红果新取流：multi_video_model/v1 + 注册匿名身份，不挂签名头。
+		videoID := strings.TrimPrefix(chapter.VideoURL, "hongguoxin-cenc://")
+		if !hongguoNumericID.MatchString(videoID) {
+			return providerMedia{}, fmt.Errorf("红果新章节缺少分集编号，请刷新剧库后重新加入队列")
+		}
+		return d.resolveHongguoxinMedia(ctx, videoID)
 	}
 	if strings.HasPrefix(chapter.VideoURL, "hongguo-cenc://") {
 		return d.resolveHongguoMedia(ctx, task)

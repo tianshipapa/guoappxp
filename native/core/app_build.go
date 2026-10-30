@@ -11,6 +11,11 @@ func nativeSourceAvailable(source string) bool {
 	if source == sourceHongguo {
 		return true
 	}
+	// 红果新与红果同源同库，只是取流链路不同，因此跟着红果一起常驻可用，
+	// 不需要 buildAllSources（否则红果鉴构建里就看不到它）。
+	if source == sourceHongguoNew {
+		return true
+	}
 	if isCustomMaccmsSource(source) {
 		return isHuangguoProviderSource(source)
 	}

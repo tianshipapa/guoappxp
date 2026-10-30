@@ -197,7 +197,8 @@ void main() {
       SourceSite.values.map((site) => site.id),
       allSourcesEnabled
           ? SourceSite.allValues.map((site) => site.id)
-          : ['hongguo'],
+          // 红果鉴只有红果与红果新（同库、取流链路不同）。
+          : ['hongguo', SourceSite.hongguoNew.id],
     );
     expect(SourceSite.isKnown('dsd'), isTrue);
     expect(SourceSite.isAvailable('dsd'), allSourcesEnabled);

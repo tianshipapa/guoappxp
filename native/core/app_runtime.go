@@ -60,6 +60,8 @@ type Downloader struct {
 	browserTransport      *huangguoBrowserTransport
 	hongguoOnce           sync.Once
 	hongguo               *hongguoAppClient
+	hongguoxinOnce        sync.Once
+	hongguoxin            *hongguoxinClient
 	huangjuOnce           sync.Once
 	huangju               *huangjuAPIClient
 	yeguoOnce             sync.Once
@@ -634,6 +636,9 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	var items []Drama
 	var err error
 	switch source {
+	case sourceHongguoNew:
+		// 红果新用无状态 offset 翻页，不与红果的游标状态互相推进。
+		items, result.HasMore, err = d.fetchHongguoxinCatalogPage(ctx, page, category)
 	case sourceHongguo:
 		if strings.HasPrefix(category, hongguoTagPrefix) {
 			items, result.HasMore, err = d.fetchHongguoTagPage(ctx, category, page)
@@ -778,6 +783,14 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 	if source == sourceHongguo {
 		raw := engine.downloader.hongguoCachedDrama(Drama{ID: drama.ID, Title: drama.Title, Source: source})
 		drama = mergeNativeDrama(drama, nativeNormalize(raw))
+	}
+	if source == sourceHongguoNew {
+		// 红果新与红果共用 App 详情缓存（同一个 series_id），直接借它补齐简介、海报与标签。
+		if entry, detailErr := engine.downloader.hongguoAppDetail(ctx, sourceID); detailErr == nil {
+			if fresh := hongguoxinDrama(entry.Drama); fresh.ID == drama.ID {
+				drama = mergeNativeDrama(drama, nativeNormalize(fresh))
+			}
+		}
 	}
 	if source == sourceHuangdou {
 		if row, err := engine.downloader.huangdouDetail(ctx, sourceID); err == nil {
