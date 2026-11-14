@@ -350,12 +350,56 @@ class _AudiobookScreenState extends State<AudiobookScreen> {
     );
   }
 
+  /// 派生数据缓存。
+  ///
+  /// 书池有近千本，而 [_categories] / [_allPool] / [_pool] 都要遍历全部书。
+  /// 这些 getter 在 build 里被调用多次（分类条、列表、翻页按钮各一次），
+  /// 如果每次现算，滑动时每帧都要跑几千次字符串比较——Android 上表现为
+  /// 上下滑动直接卡住。这里按「书池 + 分类 + 频道」做一次缓存，
+  /// 只有真正影响结果的输入变了才重算。
+  List<String>? _categoriesCache;
+  List<FanqieBook>? _allPoolCache;
+  List<FanqieBook>? _poolCache;
+  Object? _derivedKey;
+
+  /// 缓存键：书池引用 + 频道 + 分类。用 identical 判引用，
+  /// 书池是整体替换（不是原地改），引用变了就说明内容变了。
+  void _ensureDerived() {
+    final key = (
+      _malePool,
+      _femalePool,
+      _board.type,
+      _category,
+      _officialCategories,
+      _origin,
+    );
+    if (_derivedKey != null && _sameDerivedKey(_derivedKey!, key)) return;
+    _derivedKey = key;
+    _allPoolCache = null;
+    _poolCache = null;
+    _categoriesCache = null;
+  }
+
+  bool _sameDerivedKey(Object previous, Object next) {
+    final a = previous as (List, List, int, String, List, int);
+    final b = next as (List, List, int, String, List, int);
+    return identical(a.$1, b.$1) &&
+        identical(a.$2, b.$2) &&
+        a.$3 == b.$3 &&
+        a.$4 == b.$4 &&
+        identical(a.$5, b.$5) &&
+        a.$6 == b.$6;
+  }
+
   /// 分类只展示书池里确实有书的：高频基线标签 + 官方书城实时学到的分类。
   /// 分类条：红果听书按**当前频道**书池里的真实题材统计（听书只出听书的题材、
   /// 小说只出小说的题材，两者不混），番茄沿用固定分类表的顺序。
-  List<String> get _categories => _origin == 0
-      ? fanqieHongguoCategoriesFrom(_boardPool)
-      : fanqieCategoriesFrom(_allPool, preferred: _officialCategories);
+  List<String> get _categories {
+    _ensureDerived();
+    return _categoriesCache ??= _origin == 0
+        ? fanqieHongguoCategoriesFrom(_boardPool)
+        : fanqieCategoriesFrom(_allPool, preferred: _officialCategories);
+  }
 
   /// 当前频道（听书 / 小说 或 男 / 女榜）自己的书池。
   /// 按 tab 索引取而不是按 board.type：红果的两个频道是「听书 / 小说」，
@@ -369,32 +413,38 @@ class _AudiobookScreenState extends State<AudiobookScreen> {
 
   /// 男女榜合并去重后的完整听书书库。
   List<FanqieBook> get _allPool {
-    final seen = <String>{};
-    return [
-      for (final book in [..._malePool, ..._femalePool])
-        if (seen.add(book.id)) book,
-    ];
+    _ensureDerived();
+    return _allPoolCache ??= () {
+      final seen = <String>{};
+      return [
+        for (final book in [..._malePool, ..._femalePool])
+          if (seen.add(book.id)) book,
+      ];
+    }();
   }
 
   /// 当前数据源：选分类时按真实标签过滤，否则只看选中的榜。
   /// 红果听书的两个频道内容完全不同（听书 / 小说），分类过滤只在当前频道内做，
   /// 否则选「都市高武」会把听书里的同名题材也带进来。
   List<FanqieBook> get _pool {
-    if (_origin == 0) {
-      final base = _boardPool;
-      if (_category.isEmpty) return base;
+    _ensureDerived();
+    return _poolCache ??= () {
+      if (_origin == 0) {
+        final base = _boardPool;
+        if (_category.isEmpty) return base;
+        return [
+          for (final book in base)
+            if (_matchesCategory(book, _category)) book,
+        ];
+      }
+      if (_category.isEmpty) {
+        return _boardPool;
+      }
       return [
-        for (final book in base)
+        for (final book in _allPool)
           if (_matchesCategory(book, _category)) book,
       ];
-    }
-    if (_category.isEmpty) {
-      return _boardPool;
-    }
-    return [
-      for (final book in _allPool)
-        if (_matchesCategory(book, _category)) book,
-    ];
+    }();
   }
 
   bool _matchesCategory(FanqieBook book, String category) => book.category

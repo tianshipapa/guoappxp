@@ -234,10 +234,17 @@ class AudiobookSession extends ChangeNotifier {
         if (Platform.isAndroid) {
           await platform.setProperty('ao', 'audiotrack,opensles');
         }
+        // 红果的音频地址是不带扩展名的路径（`.../audio/playinfo` 之类），
+        // libmpv 默认按扩展名判断容器，认不出就只解出时长、不出声音
+        // （Windows 上表现就是进度条在走但没音频）。
+        // allowed_extensions=ALL 让 lavf 放行未知扩展名，这两项短剧播放
+        // 那边本来就有，听书这边之前漏了。
         await platform.setProperty(
           'demuxer-lavf-o',
           [
             'strict=experimental',
+            'allowed_extensions=ALL',
+            'seg_max_retry=3',
             target.local
                 ? 'protocol_whitelist=[file,crypto,data]'
                 : 'protocol_whitelist=[http,https,tcp,tls,crypto,data,file]',

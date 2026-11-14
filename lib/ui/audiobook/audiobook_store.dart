@@ -118,10 +118,21 @@ class AudiobookStore extends ChangeNotifier {
   }
 
   File audioFile(String bookId, String chapterId) =>
-      File('${directory.path}/$bookId/$chapterId.m4a');
+      File('${directory.path}/${_safeSegment(bookId)}/${_safeSegment(chapterId)}.m4a');
 
   File keyFile(String bookId, String chapterId) =>
-      File('${directory.path}/$bookId/$chapterId.key');
+      File('${directory.path}/${_safeSegment(bookId)}/${_safeSegment(chapterId)}.key');
+
+  /// 把书籍 / 章节 ID 转成能当路径用的名字。
+  ///
+  /// 红果听书的 ID 带 `hg:` 前缀，而 Windows 文件名不允许冒号，
+  /// 直接拿去建目录会抛 FileSystemException: creation failed（下载必失败）。
+  /// 这里把所有平台的非安全字符统一换成下划线；因为 ID 只由数字和前缀组成，
+  /// 替换后仍然唯一，不会撞车。
+  static String _safeSegment(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return cleaned.isEmpty ? '_' : cleaned;
+  }
 
   bool hasLocal(String bookId, String chapterId) {
     final file = audioFile(bookId, chapterId);

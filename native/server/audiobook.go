@@ -296,6 +296,11 @@ func abHongguoCategories(pool []map[string]any) []string {
 	return out
 }
 
+// abHongguoPrefix 给红果书籍 ID 加 hg: 前缀。
+//
+// 必须幂等：这个函数会被多条路径调用（书库快照、分页切片），同一条记录可能
+// 被加多次。之前不做判断，结果 ID 变成 hg:hg:hg:...，目录接口拿到的 ID 无效，
+// 前端就永远卡在「正在加载目录」。
 func abHongguoPrefix(books []any) []map[string]any {
 	out := make([]map[string]any, 0, len(books))
 	for _, item := range books {
@@ -307,10 +312,20 @@ func abHongguoPrefix(books []any) []map[string]any {
 		if id == "" {
 			continue
 		}
-		book["id"] = abHongguoBookPrefix + id
+		book["id"] = abHongguoBookID(id)
 		out = append(out, book)
 	}
 	return out
+}
+
+// abHongguoBookID 把红果 ID 规范化成「带一次 hg: 前缀」的形式。
+// 已经带前缀的会先剥干净再加，保证无论调用多少次结果都一样。
+func abHongguoBookID(id string) string {
+	id = strings.TrimSpace(id)
+	for strings.HasPrefix(id, abHongguoBookPrefix) {
+		id = strings.TrimPrefix(id, abHongguoBookPrefix)
+	}
+	return abHongguoBookPrefix + id
 }
 
 // abHongguoChapters 取红果听书的目录，按页切片（与番茄目录接口同款回包）。
@@ -326,9 +341,9 @@ func abHongguoChapters(bookID string, page int) (map[string]any, error) {
 	for _, item := range audiobookAnyList(data["chapters"]) {
 		if row, ok := item.(map[string]any); ok {
 			// 章节 ID 也加前缀：红果与番茄的 item_id 都是长数字，加前缀才能
-			// 让「正文 / 播放」两条按 ID 判书源的路径可靠区分。
+			// 让「正文 / 播放」两条按 ID 判书源的路径可靠区分。同样要幂等。
 			if id := strings.TrimSpace(asString(row["id"])); id != "" {
-				row["id"] = abHongguoBookPrefix + id
+				row["id"] = abHongguoBookID(id)
 			}
 			chapters = append(chapters, row)
 		}

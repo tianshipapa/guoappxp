@@ -200,4 +200,27 @@ void main() {
     expect(remote.key, 'ffff');
     expect(remote.headers['Referer'], 'https://novelfm.changdunovel.com/');
   });
+  test('带 hg: 前缀的红果 ID 能安全落盘（Windows 文件名不允许冒号）', () async {
+    final directory = await Directory.systemTemp.createTemp('audiobook-hg');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = await AudiobookStore.openDirectory(directory);
+
+    // 红果听书的书籍 / 章节 ID 带 hg: 前缀，直接当路径会在 Windows 上
+    // 抛 FileSystemException: creation failed（下载必失败）。
+    final audio = store.audioFile('hg:7585573146086870040', 'hg:7585573184385073688');
+    // 盘符自带冒号，所以只检查 ID 的 hg: 前缀有没有被原样带进路径。
+    expect(audio.path.contains('hg:'), isFalse,
+        reason: 'ID 的 hg: 前缀不能原样进路径，否则 Windows 建目录直接失败');
+    expect(audio.path.endsWith('.m4a'), isTrue);
+    expect(audio.path.contains('hg_7585573146086870040'), isTrue);
+
+    final key = store.keyFile('hg:123', 'hg:456');
+    expect(key.path.contains('hg:'), isFalse);
+
+    // 真能建出目录并写入，验证不是只改了字符串。
+    await audio.parent.create(recursive: true);
+    await audio.writeAsBytes([1, 2, 3]);
+    expect(audio.existsSync(), isTrue);
+    expect(store.hasLocal('hg:7585573146086870040', 'hg:7585573184385073688'), isTrue);
+  });
 }

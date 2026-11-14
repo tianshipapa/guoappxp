@@ -1389,5 +1389,11 @@ class NativeRepository extends AppRepository {
 /// 发给 Go 核心前必须剥掉。
 String _stripHongguoPrefix(String id) {
   const prefix = 'hg:';
-  return id.startsWith(prefix) ? id.substring(prefix.length) : id;
+  var value = id.trim();
+  // ID 可能在多条路径上被重复加前缀（书库快照、分页切片），这里剥干净，
+  // 否则 core 的纯数字校验会失败，表现为「点开书没有声音」。
+  while (value.startsWith(prefix)) {
+    value = value.substring(prefix.length);
+  }
+  return value;
 }
